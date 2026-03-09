@@ -16,6 +16,7 @@ use tao::window::WindowBuilder;
 use wry::WebViewBuilder;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum AppEvent {
     Log(String),
     Ready,
@@ -42,26 +43,26 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
   h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
   .sub { color: #94a3b8; font-size: 14px; margin-bottom: 40px; }
   #log {
-    width: 400px;
+    width: 420px;
     font-family: 'Consolas', 'Courier New', monospace;
     font-size: 13px;
     color: #94a3b8;
-    line-height: 1.8;
-    text-align: center;
+    line-height: 2;
+    text-align: left;
   }
-  .line { opacity: 0; animation: fadeIn 0.3s forwards; }
-  .line.ok { color: #34d399; }
-  .line.err { color: #ea4647; }
+  .step { opacity: 0; animation: fadeIn 0.3s forwards; display: flex; align-items: center; gap: 10px; }
+  .icon { width: 18px; text-align: center; flex-shrink: 0; }
   .spinner {
     display: inline-block;
-    width: 12px; height: 12px;
+    width: 14px; height: 14px;
     border: 2px solid #64748b;
     border-top-color: #ea4647;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
-    margin-right: 8px;
-    vertical-align: middle;
   }
+  .check { color: #34d399; font-weight: bold; }
+  .fail { color: #ea4647; font-weight: bold; }
+  .detail { color: #64748b; font-size: 12px; margin-left: 28px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes fadeIn { to { opacity: 1; } }
 </style>
@@ -71,13 +72,38 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
   <p class="sub">AI 기업분석 준비 중</p>
   <div id="log"></div>
   <script>
-    function addLog(msg, cls) {
+    let currentStep = null;
+    function startStep(label) {
       const el = document.getElementById('log');
       const div = document.createElement('div');
-      div.className = 'line' + (cls ? ' ' + cls : '');
-      div.innerHTML = msg;
+      div.className = 'step';
+      div.innerHTML = '<span class="icon"><span class="spinner"></span></span><span>' + label + '</span>';
       el.appendChild(div);
-      el.scrollTop = el.scrollHeight;
+      currentStep = div;
+    }
+    function completeStep() {
+      if (!currentStep) return;
+      currentStep.querySelector('.icon').innerHTML = '<span class="check">&#10003;</span>';
+      currentStep = null;
+    }
+    function failStep(msg) {
+      if (!currentStep) return;
+      currentStep.querySelector('.icon').innerHTML = '<span class="fail">&#10007;</span>';
+      if (msg) {
+        const el = document.getElementById('log');
+        const detail = document.createElement('div');
+        detail.className = 'detail';
+        detail.textContent = msg;
+        el.appendChild(detail);
+      }
+      currentStep = null;
+    }
+    function addInfo(msg) {
+      const el = document.getElementById('log');
+      const div = document.createElement('div');
+      div.className = 'detail';
+      div.textContent = msg;
+      el.appendChild(div);
     }
   </script>
 </body>
@@ -112,19 +138,17 @@ fn main() {
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
-        if let Ok(app_event) = rx.try_recv() {
+        while let Ok(app_event) = rx.try_recv() {
             match app_event {
-                AppEvent::Log(msg) => {
-                    let escaped = msg.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n");
-                    let js = format!("addLog('{escaped}', '')");
-                    webview.evaluate_script(&js).ok();
+                AppEvent::Log(script) => {
+                    webview.evaluate_script(&script).ok();
                 }
                 AppEvent::Ready => {
                     let _ = webview.load_url("http://localhost:8400");
                 }
                 AppEvent::Error(msg) => {
                     let escaped = msg.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n");
-                    let js = format!("addLog('{escaped}', 'err')");
+                    let js = format!("failStep('{escaped}')");
                     webview.evaluate_script(&js).ok();
                 }
             }
@@ -144,18 +168,9 @@ fn main() {
 }
 
 fn run_setup(tx: mpsc::Sender<AppEvent>, proxy: tao::event_loop::EventLoopProxy<AppEvent>) {
-    let send = |msg: &str| {
-        let _ = tx.send(AppEvent::Log(msg.to_string()));
-        let _ = proxy.send_event(AppEvent::Log(msg.to_string()));
-    };
-    let send_ok = |msg: &str| {
-        let formatted = format!("<span class=\"ok\">+ {msg}</span>");
-        let _ = tx.send(AppEvent::Log(formatted.clone()));
-        let _ = proxy.send_event(AppEvent::Log(formatted));
-    };
-    let send_err = |msg: &str| {
-        let _ = tx.send(AppEvent::Error(msg.to_string()));
-        let _ = proxy.send_event(AppEvent::Error(msg.to_string()));
+    let js = |script: &str| {
+        let _ = tx.send(AppEvent::Log(script.to_string()));
+        let _ = proxy.send_event(AppEvent::Log(script.to_string()));
     };
 
     let app_dir = paths::app_dir();
@@ -163,52 +178,56 @@ fn run_setup(tx: mpsc::Sender<AppEvent>, proxy: tao::event_loop::EventLoopProxy<
         std::fs::create_dir_all(&app_dir).ok();
     }
 
-    send("<span class=\"spinner\"></span> [1/4] uv 설치 확인 중...");
+    js("startStep('uv 확인 중...')");
     if let Err(e) = setup::ensure_uv(&app_dir) {
-        send_err(&format!("uv 설치 실패: {e}"));
+        js(&format!("failStep('uv 설치 실패: {e}')"));
         return;
     }
-    send_ok("uv 준비 완료");
+    js("completeStep()");
 
-    send("<span class=\"spinner\"></span> [2/4] Python 환경 확인 중...");
+    js("startStep('Python + DartLab 확인 중...')");
     if let Err(e) = setup::ensure_dartlab(&app_dir) {
-        send_err(&format!("DartLab 설치 실패: {e}"));
+        js(&format!("failStep('DartLab 설치 실패: {e}')"));
         return;
     }
-    send_ok("DartLab 설치 완료");
+    js("completeStep()");
 
     match updater::check_update(&app_dir) {
         Ok(Some(latest)) => {
-            send(&format!("<span class=\"spinner\"></span> 새 버전 발견: {latest} — 업데이트 중..."));
+            js(&format!("startStep('새 버전 {latest} 업데이트 중...')"));
             if let Err(e) = updater::do_update(&app_dir) {
-                send(&format!("! 업데이트 실패 (기존 버전으로 진행): {e}"));
+                js(&format!("failStep('업데이트 실패: {e}')"));
             } else {
-                send_ok("업데이트 완료");
+                js("completeStep()");
             }
         }
         _ => {}
     }
 
-    send("<span class=\"spinner\"></span> [3/4] Ollama 확인 중...");
+    js("startStep('Ollama 확인 중...')");
     if let Err(e) = ollama::ensure_ollama() {
-        send(&format!("! Ollama 건너뜀: {e}"));
+        js(&format!("failStep('{e}')"));
     } else {
-        send_ok("Ollama 준비 완료");
+        js("completeStep()");
     }
 
-    send("<span class=\"spinner\"></span> [4/4] 서버 시작 중...");
+    js("startStep('서버 시작 중...')");
     if let Err(e) = runner::start_server(&app_dir) {
-        send_err(&format!("서버 시작 실패: {e}"));
+        js(&format!("failStep('서버 시작 실패: {e}')"));
         return;
     }
+    js("completeStep()");
 
-    send("<span class=\"spinner\"></span> 서버 응답 대기 중...");
-    if runner::wait_for_server(15) {
-        send_ok("준비 완료!");
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        let _ = tx.send(AppEvent::Ready);
-        let _ = proxy.send_event(AppEvent::Ready);
-    } else {
-        send_err("서버 응답 시간 초과");
+    js("startStep('서버 응답 대기 중...')");
+    match runner::wait_for_server(60) {
+        Ok(()) => {
+            js("completeStep()");
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let _ = tx.send(AppEvent::Ready);
+            let _ = proxy.send_event(AppEvent::Ready);
+        }
+        Err(e) => {
+            js(&format!("failStep('{e}')"));
+        }
     }
 }

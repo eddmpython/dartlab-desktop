@@ -57,9 +57,20 @@ pub fn ensure_uv(app_dir: &Path) -> Result<(), String> {
 pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
     let uv = paths::uv_bin(app_dir);
     let venv = paths::venv_dir(app_dir);
+    let dartlab_bin = paths::dartlab_bin(app_dir);
 
-    if !venv.exists() {
-        ui::print_step(2, 4, "Python 환경 생성 중...");
+    cleanup_legacy(app_dir);
+
+    let needs_venv = if venv.exists() {
+        !venv.join("Scripts").join("python.exe").exists()
+    } else {
+        true
+    };
+
+    if needs_venv {
+        if venv.exists() {
+            std::fs::remove_dir_all(&venv).ok();
+        }
 
         let status = Command::new(&uv)
             .args(["venv", venv.to_str().unwrap(), "--python", "3.12"])
@@ -71,25 +82,38 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
         if !status.success() {
             return Err("uv venv failed".into());
         }
-
-        ui::print_ok("Python 환경 생성 완료");
     }
 
-    ui::print_step(3, 4, "DartLab 설치/업데이트 중...");
+    if !dartlab_bin.exists() {
+        let python = paths::python_bin(app_dir);
+        let status = Command::new(&uv)
+            .args(["pip", "install", "dartlab[ai]", "--python", python.to_str().unwrap()])
+            .current_dir(app_dir)
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+            .map_err(|e| e.to_string())?;
 
-    let status = Command::new(&uv)
-        .args(["pip", "install", "dartlab[ai]", "--python", venv.join("Scripts").join("python.exe").to_str().unwrap()])
-        .current_dir(app_dir)
-        .creation_flags(CREATE_NO_WINDOW)
-        .status()
-        .map_err(|e| e.to_string())?;
-
-    if !status.success() {
-        return Err("uv pip install dartlab[ai] failed".into());
+        if !status.success() {
+            return Err("uv pip install dartlab[ai] failed".into());
+        }
     }
 
-    ui::print_ok("DartLab 설치 완료");
     Ok(())
+}
+
+fn cleanup_legacy(app_dir: &Path) {
+    let pyproject = app_dir.join("pyproject.toml");
+    if pyproject.exists() {
+        std::fs::remove_file(&pyproject).ok();
+    }
+    let uv_lock = app_dir.join("uv.lock");
+    if uv_lock.exists() {
+        std::fs::remove_file(&uv_lock).ok();
+    }
+    let old_venv = app_dir.join("venv");
+    if old_venv.exists() {
+        std::fs::remove_dir_all(&old_venv).ok();
+    }
 }
 
 fn download_file(url: &str, dest: &Path) -> Result<(), String> {
