@@ -40,17 +40,27 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     height: 100vh;
     overflow: hidden;
   }
-  h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
-  .sub { color: #94a3b8; font-size: 14px; margin-bottom: 40px; }
+  .avatar {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    margin-bottom: 16px;
+    opacity: 0;
+    animation: fadeIn 0.5s 0.2s forwards;
+  }
+  h1 { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
+  .sub { color: #94a3b8; font-size: 13px; margin-bottom: 32px; }
   #log {
-    width: 420px;
     font-family: 'Consolas', 'Courier New', monospace;
     font-size: 13px;
     color: #94a3b8;
-    line-height: 2;
-    text-align: left;
+    line-height: 2.2;
   }
-  .step { opacity: 0; animation: fadeIn 0.3s forwards; display: flex; align-items: center; gap: 10px; }
+  .step {
+    opacity: 0; animation: fadeIn 0.3s forwards;
+    display: flex; align-items: center; gap: 10px;
+    justify-content: flex-start;
+    white-space: nowrap;
+  }
   .icon { width: 18px; text-align: center; flex-shrink: 0; }
   .spinner {
     display: inline-block;
@@ -60,14 +70,15 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
-  .check { color: #34d399; font-weight: bold; }
-  .fail { color: #ea4647; font-weight: bold; }
-  .detail { color: #64748b; font-size: 12px; margin-left: 28px; }
+  .check { color: #34d399; font-size: 15px; }
+  .fail { color: #ea4647; font-size: 15px; }
+  .detail { color: #ea4647; font-size: 11px; margin-top: 2px; padding-left: 28px; white-space: normal; max-width: 400px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes fadeIn { to { opacity: 1; } }
 </style>
 </head>
 <body>
+  <img class="avatar" src="https://eddmpython.github.io/dartlab/avatar-analyze.png" alt="">
   <h1>DartLab</h1>
   <p class="sub">AI 기업분석 준비 중</p>
   <div id="log"></div>
@@ -84,11 +95,13 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     function completeStep() {
       if (!currentStep) return;
       currentStep.querySelector('.icon').innerHTML = '<span class="check">&#10003;</span>';
+      currentStep.style.color = '#f1f5f9';
       currentStep = null;
     }
     function failStep(msg) {
       if (!currentStep) return;
       currentStep.querySelector('.icon').innerHTML = '<span class="fail">&#10007;</span>';
+      currentStep.style.color = '#ea4647';
       if (msg) {
         const el = document.getElementById('log');
         const detail = document.createElement('div');
@@ -97,13 +110,6 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
         el.appendChild(detail);
       }
       currentStep = null;
-    }
-    function addInfo(msg) {
-      const el = document.getElementById('log');
-      const div = document.createElement('div');
-      div.className = 'detail';
-      div.textContent = msg;
-      el.appendChild(div);
     }
   </script>
 </body>
@@ -144,7 +150,7 @@ fn main() {
                     webview.evaluate_script(&script).ok();
                 }
                 AppEvent::Ready => {
-                    let _ = webview.load_url("http://localhost:8400");
+                    let _ = webview.load_url("http://127.0.0.1:8400");
                 }
                 AppEvent::Error(msg) => {
                     let escaped = msg.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n");
