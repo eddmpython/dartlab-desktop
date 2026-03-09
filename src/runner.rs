@@ -6,7 +6,7 @@ const PORT: u16 = 8400;
 const URL: &str = "http://localhost:8400";
 
 pub fn run_dartlab(app_dir: &Path) -> Result<(), String> {
-    let python = paths::python_bin(app_dir);
+    let dartlab = paths::dartlab_bin(app_dir);
 
     ui::print_info(&format!("브라우저에서 {URL} 을 엽니다"));
     ui::print_info("종료하려면 이 창을 닫으세요");
@@ -17,10 +17,8 @@ pub fn run_dartlab(app_dir: &Path) -> Result<(), String> {
         open::that(URL).ok();
     });
 
-    let status = Command::new(&python)
+    let status = Command::new(&dartlab)
         .args([
-            "-m",
-            "dartlab",
             "ai",
             "--port",
             &PORT.to_string(),

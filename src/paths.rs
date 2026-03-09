@@ -17,3 +17,7 @@ pub fn venv_dir(app_dir: &std::path::Path) -> PathBuf {
 pub fn python_bin(app_dir: &std::path::Path) -> PathBuf {
     venv_dir(app_dir).join("Scripts").join("python.exe")
 }
+
+pub fn dartlab_bin(app_dir: &std::path::Path) -> PathBuf {
+    venv_dir(app_dir).join("Scripts").join("dartlab.exe")
+}

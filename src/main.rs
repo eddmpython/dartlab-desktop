@@ -4,11 +4,17 @@ mod updater;
 mod ollama;
 mod paths;
 mod ui;
+#[allow(non_snake_case)]
+mod selfUpdate;
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    selfUpdate::cleanup_old();
+
     ui::print_banner();
+
+    selfUpdate::check_and_update();
 
     let app_dir = paths::app_dir();
     if !app_dir.exists() {
