@@ -27,7 +27,7 @@ pub fn ensure_uv(app_dir: &Path) -> Result<(), String> {
     download_file(&url, &zip_path)?;
     extract_zip(&zip_path, &uv_dir)?;
 
-    let nested = uv_dir.join(format!("uv-x86_64-pc-windows-msvc"));
+    let nested = uv_dir.join("uv-x86_64-pc-windows-msvc");
     if nested.exists() {
         for entry in std::fs::read_dir(&nested).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
@@ -57,13 +57,13 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
         ui::print_step(2, 4, "Python 환경 생성 중...");
 
         let status = Command::new(&uv)
-            .args(["init", "--no-workspace"])
+            .args(["venv", venv.to_str().unwrap(), "--python", "3.12"])
             .current_dir(app_dir)
             .status()
             .map_err(|e| e.to_string())?;
 
         if !status.success() {
-            return Err("uv init failed".into());
+            return Err("uv venv failed".into());
         }
 
         ui::print_ok("Python 환경 생성 완료");
@@ -72,13 +72,13 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
     ui::print_step(3, 4, "DartLab 설치/업데이트 중...");
 
     let status = Command::new(&uv)
-        .args(["add", "dartlab[ai]"])
+        .args(["pip", "install", "dartlab[ai]", "--python", venv.join("Scripts").join("python.exe").to_str().unwrap()])
         .current_dir(app_dir)
         .status()
         .map_err(|e| e.to_string())?;
 
     if !status.success() {
-        return Err("uv add dartlab[ai] failed".into());
+        return Err("uv pip install dartlab[ai] failed".into());
     }
 
     ui::print_ok("DartLab 설치 완료");

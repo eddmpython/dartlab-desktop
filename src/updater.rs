@@ -17,15 +17,16 @@ pub fn check_update(app_dir: &Path) -> Result<Option<String>, String> {
 
 pub fn do_update(app_dir: &Path) -> Result<(), String> {
     let uv = paths::uv_bin(app_dir);
+    let python = paths::python_bin(app_dir);
 
     let status = Command::new(&uv)
-        .args(["add", "--upgrade", "dartlab[ai]"])
+        .args(["pip", "install", "--upgrade", "dartlab[ai]", "--python", python.to_str().unwrap()])
         .current_dir(app_dir)
         .status()
         .map_err(|e| e.to_string())?;
 
     if !status.success() {
-        return Err("uv add --upgrade failed".into());
+        return Err("uv pip install --upgrade failed".into());
     }
 
     crate::ui::print_ok("업데이트 완료");
@@ -33,10 +34,10 @@ pub fn do_update(app_dir: &Path) -> Result<(), String> {
 }
 
 fn get_local_version(app_dir: &Path) -> Result<String, String> {
-    let uv = paths::uv_bin(app_dir);
+    let python = paths::python_bin(app_dir);
 
-    let output = Command::new(&uv)
-        .args(["run", "python", "-c", "import dartlab; print(dartlab.__version__)"])
+    let output = Command::new(&python)
+        .args(["-c", "import dartlab; print(dartlab.__version__)"])
         .current_dir(app_dir)
         .output()
         .map_err(|e| e.to_string())?;

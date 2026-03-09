@@ -6,11 +6,11 @@ Python, uv, Ollama를 모를 필요 없다. exe를 실행하면 전부 자동으
 
 ## 다운로드
 
-[GitHub Releases](https://github.com/eddmpython/dartlab-desktop/releases)에서 `DartLab-Setup.exe`를 다운로드.
+[GitHub Releases](https://github.com/eddmpython/dartlab-desktop/releases)에서 `DartLab.exe`를 다운로드.
 
 ## 사용법
 
-1. `DartLab-Setup.exe` 더블클릭
+1. `DartLab.exe` 더블클릭
 2. 첫 실행: 환경 자동 설치 (2~5분)
 3. 이후 실행: 5초 내 브라우저 오픈
 

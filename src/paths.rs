@@ -11,5 +11,9 @@ pub fn uv_bin(app_dir: &std::path::Path) -> PathBuf {
 }
 
 pub fn venv_dir(app_dir: &std::path::Path) -> PathBuf {
-    app_dir.join("env")
+    app_dir.join(".venv")
+}
+
+pub fn python_bin(app_dir: &std::path::Path) -> PathBuf {
+    venv_dir(app_dir).join("Scripts").join("python.exe")
 }
