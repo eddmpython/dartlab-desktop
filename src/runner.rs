@@ -1,9 +1,11 @@
+use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use crate::paths;
 
 const PORT: u16 = 8400;
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 static SERVER_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
 
@@ -11,10 +13,11 @@ pub fn start_server(app_dir: &Path) -> Result<(), String> {
     let dartlab = paths::dartlab_bin(app_dir);
 
     let child = Command::new(&dartlab)
-        .args(["ai", "--port", &PORT.to_string()])
+        .args(["ai", "--port", &PORT.to_string(), "--no-browser"])
         .current_dir(app_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| e.to_string())?;
 

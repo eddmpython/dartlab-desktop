@@ -1,14 +1,19 @@
+use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 use crate::{paths, ui};
 
 const UV_VERSION: &str = "0.6.14";
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub fn ensure_uv(app_dir: &Path) -> Result<(), String> {
     let uv = paths::uv_bin(app_dir);
 
     if uv.exists() {
-        let out = Command::new(&uv).arg("--version").output();
+        let out = Command::new(&uv)
+            .arg("--version")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
         if out.is_ok() {
             return Ok(());
         }
@@ -59,6 +64,7 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
         let status = Command::new(&uv)
             .args(["venv", venv.to_str().unwrap(), "--python", "3.12"])
             .current_dir(app_dir)
+            .creation_flags(CREATE_NO_WINDOW)
             .status()
             .map_err(|e| e.to_string())?;
 
@@ -74,6 +80,7 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
     let status = Command::new(&uv)
         .args(["pip", "install", "dartlab[ai]", "--python", venv.join("Scripts").join("python.exe").to_str().unwrap()])
         .current_dir(app_dir)
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map_err(|e| e.to_string())?;
 
@@ -108,6 +115,7 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
                 dest.display()
             ),
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map_err(|e| e.to_string())?;
 

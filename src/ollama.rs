@@ -1,8 +1,10 @@
+use std::os::windows::process::CommandExt;
 use std::process::Command;
 use crate::ui;
 
 const OLLAMA_DOWNLOAD_URL: &str = "https://ollama.com/download/OllamaSetup.exe";
 const DEFAULT_MODEL: &str = "qwen3";
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub fn ensure_ollama() -> Result<(), String> {
     if is_ollama_installed() {
@@ -24,8 +26,6 @@ pub fn ensure_ollama() -> Result<(), String> {
 
     let bytes = resp.bytes().map_err(|e| e.to_string())?;
     std::fs::write(&installer, &bytes).map_err(|e| e.to_string())?;
-
-    ui::print_info("Ollama 설치 프로그램 실행 중 (별도 창)...");
 
     let status = Command::new(&installer)
         .arg("/SILENT")
@@ -53,10 +53,11 @@ fn ensure_model() -> Result<(), String> {
         return Ok(());
     }
 
-    ui::print_info(&format!("AI 모델 다운로드 중 ({DEFAULT_MODEL})... 수 분 소요될 수 있습니다"));
+    ui::print_info(&format!("AI 모델 다운로드 중 ({DEFAULT_MODEL})..."));
 
     let status = Command::new("ollama")
         .args(["pull", DEFAULT_MODEL])
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map_err(|e| format!("ollama pull 실패: {e}"))?;
 
@@ -71,6 +72,7 @@ fn ensure_model() -> Result<(), String> {
 fn is_ollama_installed() -> bool {
     Command::new("ollama")
         .arg("--version")
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .is_ok_and(|o| o.status.success())
 }
@@ -78,6 +80,7 @@ fn is_ollama_installed() -> bool {
 fn has_model(model: &str) -> bool {
     let output = Command::new("ollama")
         .args(["list"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     match output {

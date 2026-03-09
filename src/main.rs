@@ -47,6 +47,7 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     font-size: 13px;
     color: #94a3b8;
     line-height: 1.8;
+    text-align: center;
   }
   .line { opacity: 0; animation: fadeIn 0.3s forwards; }
   .line.ok { color: #34d399; }
