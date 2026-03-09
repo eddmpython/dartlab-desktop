@@ -121,7 +121,8 @@ fn main() {
     let window = wb.build(&event_loop).expect("Failed to create window");
     window.set_focus();
 
-    let webview = WebViewBuilder::new()
+    let mut web_ctx = wry::WebContext::new(Some(paths::app_dir().join("webview2")));
+    let webview = WebViewBuilder::with_web_context(&mut web_ctx)
         .with_html(SETUP_HTML)
         .build(&window)
         .expect("Failed to create webview");
