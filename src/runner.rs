@@ -1,35 +1,55 @@
 use std::path::Path;
-use std::process::Command;
-use crate::{paths, ui};
+use std::process::{Child, Command, Stdio};
+use std::sync::Mutex;
+use crate::paths;
 
 const PORT: u16 = 8400;
-const URL: &str = "http://localhost:8400";
 
-pub fn run_dartlab(app_dir: &Path) -> Result<(), String> {
+static SERVER_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
+
+pub fn start_server(app_dir: &Path) -> Result<(), String> {
     let dartlab = paths::dartlab_bin(app_dir);
 
-    ui::print_info(&format!("브라우저에서 {URL} 을 엽니다"));
-    ui::print_info("종료하려면 이 창을 닫으세요");
-    println!();
-
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(3));
-        open::that(URL).ok();
-    });
-
-    let status = Command::new(&dartlab)
-        .args([
-            "ai",
-            "--port",
-            &PORT.to_string(),
-        ])
+    let child = Command::new(&dartlab)
+        .args(["ai", "--port", &PORT.to_string()])
         .current_dir(app_dir)
-        .status()
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
         .map_err(|e| e.to_string())?;
 
-    if !status.success() {
-        return Err("dartlab ai exited with error".into());
+    if let Ok(mut lock) = SERVER_PROCESS.lock() {
+        *lock = Some(child);
     }
 
     Ok(())
+}
+
+pub fn wait_for_server(timeout_secs: u64) -> bool {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .unwrap();
+
+    let url = format!("http://localhost:{PORT}/api/status");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+
+    while std::time::Instant::now() < deadline {
+        if client.get(&url).send().is_ok_and(|r| r.status().is_success()) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    false
+}
+
+pub fn stop_server() {
+    if let Ok(mut lock) = SERVER_PROCESS.lock() {
+        if let Some(ref mut child) = *lock {
+            child.kill().ok();
+            child.wait().ok();
+        }
+        *lock = None;
+    }
 }
