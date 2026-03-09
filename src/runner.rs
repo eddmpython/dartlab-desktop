@@ -14,6 +14,7 @@ pub fn start_server(app_dir: &Path) -> Result<(), String> {
 
     let child = Command::new(&dartlab)
         .args(["ai", "--port", &PORT.to_string(), "--no-browser"])
+        .env("DARTLAB_NO_BROWSER", "1")
         .current_dir(app_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
