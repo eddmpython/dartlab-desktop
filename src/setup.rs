@@ -87,14 +87,14 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
     if !dartlab_bin.exists() {
         let python = paths::python_bin(app_dir);
         let status = Command::new(&uv)
-            .args(["pip", "install", "dartlab[ai]", "--python", python.to_str().unwrap()])
+            .args(["pip", "install", "dartlab[ai,llm]", "--python", python.to_str().unwrap()])
             .current_dir(app_dir)
             .creation_flags(CREATE_NO_WINDOW)
             .status()
             .map_err(|e| e.to_string())?;
 
         if !status.success() {
-            return Err("uv pip install dartlab[ai] failed".into());
+            return Err("uv pip install dartlab[ai,llm] failed".into());
         }
     }
 

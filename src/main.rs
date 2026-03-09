@@ -12,8 +12,8 @@ mod selfUpdate;
 use std::sync::mpsc;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
-use tao::window::WindowBuilder;
-use wry::WebViewBuilder;
+use tao::window::{Icon, WindowBuilder};
+use wry::{WebViewBuilder, Rect};
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -43,37 +43,38 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
   .avatar {
     width: 80px; height: 80px;
     border-radius: 50%;
-    margin-bottom: 16px;
+    margin-bottom: 20px;
     opacity: 0;
     animation: fadeIn 0.5s 0.2s forwards;
   }
   h1 { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
-  .sub { color: #94a3b8; font-size: 13px; margin-bottom: 32px; }
-  #log {
-    font-family: 'Consolas', 'Courier New', monospace;
+  .sub { color: #94a3b8; font-size: 13px; margin-bottom: 36px; }
+  .bar-wrap {
+    width: 280px; height: 4px;
+    background: #1e2433;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .bar {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #ea4647, #fb923c);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+  #status {
     font-size: 13px;
-    color: #94a3b8;
-    line-height: 2.2;
+    color: #64748b;
+    min-height: 20px;
   }
-  .step {
-    opacity: 0; animation: fadeIn 0.3s forwards;
-    display: flex; align-items: center; gap: 10px;
-    justify-content: flex-start;
-    white-space: nowrap;
+  #error {
+    color: #ea4647;
+    font-size: 12px;
+    margin-top: 8px;
+    max-width: 400px;
+    text-align: center;
+    display: none;
   }
-  .icon { width: 18px; text-align: center; flex-shrink: 0; }
-  .spinner {
-    display: inline-block;
-    width: 14px; height: 14px;
-    border: 2px solid #64748b;
-    border-top-color: #ea4647;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  .check { color: #34d399; font-size: 15px; }
-  .fail { color: #ea4647; font-size: 15px; }
-  .detail { color: #ea4647; font-size: 11px; margin-top: 2px; padding-left: 28px; white-space: normal; max-width: 400px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes fadeIn { to { opacity: 1; } }
 </style>
 </head>
@@ -81,35 +82,18 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
   <img class="avatar" src="https://eddmpython.github.io/dartlab/avatar-analyze.png" alt="">
   <h1>DartLab</h1>
   <p class="sub">AI 기업분석 준비 중</p>
-  <div id="log"></div>
+  <div class="bar-wrap"><div class="bar" id="bar"></div></div>
+  <div id="status"></div>
+  <div id="error"></div>
   <script>
-    let currentStep = null;
-    function startStep(label) {
-      const el = document.getElementById('log');
-      const div = document.createElement('div');
-      div.className = 'step';
-      div.innerHTML = '<span class="icon"><span class="spinner"></span></span><span>' + label + '</span>';
-      el.appendChild(div);
-      currentStep = div;
+    function setProgress(pct, label) {
+      document.getElementById('bar').style.width = pct + '%';
+      document.getElementById('status').textContent = label;
     }
-    function completeStep() {
-      if (!currentStep) return;
-      currentStep.querySelector('.icon').innerHTML = '<span class="check">&#10003;</span>';
-      currentStep.style.color = '#f1f5f9';
-      currentStep = null;
-    }
-    function failStep(msg) {
-      if (!currentStep) return;
-      currentStep.querySelector('.icon').innerHTML = '<span class="fail">&#10007;</span>';
-      currentStep.style.color = '#ea4647';
-      if (msg) {
-        const el = document.getElementById('log');
-        const detail = document.createElement('div');
-        detail.className = 'detail';
-        detail.textContent = msg;
-        el.appendChild(detail);
-      }
-      currentStep = null;
+    function setError(msg) {
+      var el = document.getElementById('error');
+      el.textContent = msg;
+      el.style.display = 'block';
     }
   </script>
 </body>
@@ -122,12 +106,20 @@ fn main() {
     let event_loop = EventLoopBuilder::<AppEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
 
-    let window = WindowBuilder::new()
+    let icon = load_window_icon();
+
+    let mut wb = WindowBuilder::new()
         .with_title("DartLab")
         .with_inner_size(tao::dpi::LogicalSize::new(1200.0, 800.0))
         .with_min_inner_size(tao::dpi::LogicalSize::new(800.0, 600.0))
-        .build(&event_loop)
-        .expect("Failed to create window");
+        .with_focused(true);
+
+    if let Some(ic) = icon {
+        wb = wb.with_window_icon(Some(ic));
+    }
+
+    let window = wb.build(&event_loop).expect("Failed to create window");
+    window.set_focus();
 
     let webview = WebViewBuilder::new()
         .with_html(SETUP_HTML)
@@ -162,6 +154,15 @@ fn main() {
 
         match event {
             Event::WindowEvent {
+                event: WindowEvent::Resized(size),
+                ..
+            } => {
+                let _ = webview.set_bounds(Rect {
+                    position: tao::dpi::LogicalPosition::new(0, 0).into(),
+                    size: tao::dpi::LogicalSize::new(size.width, size.height).into(),
+                });
+            }
+            Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
             } => {
@@ -179,61 +180,73 @@ fn run_setup(tx: mpsc::Sender<AppEvent>, proxy: tao::event_loop::EventLoopProxy<
         let _ = proxy.send_event(AppEvent::Log(script.to_string()));
     };
 
+    let progress = |pct: u32, label: &str| {
+        let escaped = label.replace('\'', "\\'");
+        js(&format!("setProgress({pct},'{escaped}')"));
+    };
+
+    let fail = |msg: &str| {
+        let escaped = msg.replace('\'', "\\'");
+        js(&format!("setError('{escaped}')"));
+    };
+
     let app_dir = paths::app_dir();
     if !app_dir.exists() {
         std::fs::create_dir_all(&app_dir).ok();
     }
 
-    js("startStep('uv 확인 중...')");
+    progress(10, "환경 준비 중...");
     if let Err(e) = setup::ensure_uv(&app_dir) {
-        js(&format!("failStep('uv 설치 실패: {e}')"));
+        fail(&format!("uv 설치 실패: {e}"));
         return;
     }
-    js("completeStep()");
 
-    js("startStep('Python + DartLab 확인 중...')");
+    progress(30, "DartLab 설치 확인 중...");
     if let Err(e) = setup::ensure_dartlab(&app_dir) {
-        js(&format!("failStep('DartLab 설치 실패: {e}')"));
+        fail(&format!("DartLab 설치 실패: {e}"));
         return;
     }
-    js("completeStep()");
 
+    progress(50, "업데이트 확인 중...");
     match updater::check_update(&app_dir) {
         Ok(Some(latest)) => {
-            js(&format!("startStep('새 버전 {latest} 업데이트 중...')"));
-            if let Err(e) = updater::do_update(&app_dir) {
-                js(&format!("failStep('업데이트 실패: {e}')"));
-            } else {
-                js("completeStep()");
-            }
+            progress(55, &format!("v{latest} 업데이트 중..."));
+            if let Err(_e) = updater::do_update(&app_dir) {}
         }
         _ => {}
     }
 
-    js("startStep('Ollama 확인 중...')");
-    if let Err(e) = ollama::ensure_ollama() {
-        js(&format!("failStep('{e}')"));
-    } else {
-        js("completeStep()");
-    }
+    progress(70, "Ollama 확인 중...");
+    let _ = ollama::ensure_ollama();
 
-    js("startStep('서버 시작 중...')");
+    progress(85, "서버 시작 중...");
     if let Err(e) = runner::start_server(&app_dir) {
-        js(&format!("failStep('서버 시작 실패: {e}')"));
+        fail(&format!("서버 시작 실패: {e}"));
         return;
     }
-    js("completeStep()");
 
-    js("startStep('서버 응답 대기 중...')");
-    match runner::wait_for_server(60) {
+    progress(90, "서버 응답 대기 중...");
+    match runner::wait_for_server(30) {
         Ok(()) => {
-            js("completeStep()");
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            progress(100, "준비 완료!");
+            std::thread::sleep(std::time::Duration::from_millis(300));
             let _ = tx.send(AppEvent::Ready);
             let _ = proxy.send_event(AppEvent::Ready);
         }
         Err(e) => {
-            js(&format!("failStep('{e}')"));
+            fail(&e);
         }
     }
+}
+
+fn load_window_icon() -> Option<Icon> {
+    let ico_bytes = include_bytes!("../assets/icon.ico");
+    let reader = image::ImageReader::with_format(
+        std::io::Cursor::new(ico_bytes),
+        image::ImageFormat::Ico,
+    );
+    let img = reader.decode().ok()?;
+    let rgba = img.to_rgba8();
+    let (w, h) = (rgba.width(), rgba.height());
+    Icon::from_rgba(rgba.into_raw(), w, h).ok()
 }

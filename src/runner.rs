@@ -38,32 +38,27 @@ pub fn start_server(app_dir: &Path) -> Result<(), String> {
 }
 
 pub fn wait_for_server(timeout_secs: u64) -> Result<(), String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(2))
-        .build()
-        .unwrap();
-
-    let url = format!("http://127.0.0.1:{PORT}/api/status");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
 
     while std::time::Instant::now() < deadline {
         if let Ok(mut lock) = SERVER_PROCESS.lock() {
             if let Some(ref mut child) = *lock {
                 if let Some(exit) = child.try_wait().ok().flatten() {
-                    let log_tail = read_log_tail();
-                    return Err(format!("서버 프로세스 종료됨 (code: {exit})\n{log_tail}"));
+                    return Err(format!("서버 프로세스 종료됨 (code: {exit})"));
                 }
             }
         }
 
-        if client.get(&url).send().is_ok_and(|r| r.status().is_success()) {
+        if std::net::TcpStream::connect_timeout(
+            &format!("127.0.0.1:{PORT}").parse().unwrap(),
+            std::time::Duration::from_secs(1),
+        ).is_ok() {
             return Ok(());
         }
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        std::thread::sleep(std::time::Duration::from_millis(300));
     }
 
-    let log_tail = read_log_tail();
-    Err(format!("서버 응답 시간 초과 ({timeout_secs}초)\n{log_tail}"))
+    Err("서버 응답 시간 초과".into())
 }
 
 pub fn stop_server() {
@@ -74,19 +69,4 @@ pub fn stop_server() {
         }
         *lock = None;
     }
-}
-
-fn read_log_tail() -> String {
-    let app_dir = paths::app_dir();
-    let log_path = app_dir.join("server.log");
-    std::fs::read_to_string(&log_path)
-        .unwrap_or_default()
-        .lines()
-        .rev()
-        .take(5)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<Vec<_>>()
-        .join("\n")
 }

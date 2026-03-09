@@ -22,7 +22,7 @@ pub fn do_update(app_dir: &Path) -> Result<(), String> {
     let python = paths::python_bin(app_dir);
 
     let status = Command::new(&uv)
-        .args(["pip", "install", "--upgrade", "dartlab[ai]", "--python", python.to_str().unwrap()])
+        .args(["pip", "install", "--upgrade", "dartlab[ai,llm]", "--python", python.to_str().unwrap()])
         .current_dir(app_dir)
         .creation_flags(CREATE_NO_WINDOW)
         .status()
