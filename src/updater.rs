@@ -32,7 +32,6 @@ pub fn do_update(app_dir: &Path) -> Result<(), String> {
         return Err("uv pip install --upgrade failed".into());
     }
 
-    crate::ui::print_ok("업데이트 완료");
     Ok(())
 }
 
@@ -54,17 +53,15 @@ fn get_local_version(app_dir: &Path) -> Result<String, String> {
 }
 
 fn get_pypi_version() -> Result<String, String> {
-    let resp = reqwest::blocking::Client::new()
-        .get(PYPI_URL)
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
+    let resp = ureq::get(PYPI_URL)
+        .header("Accept", "application/json")
+        .call()
         .map_err(|e| format!("PyPI request failed: {e}"))?;
 
-    if !resp.status().is_success() {
-        return Err(format!("PyPI HTTP {}", resp.status()));
-    }
+    let body = resp.into_body()
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
 
-    let body = resp.text().map_err(|e| e.to_string())?;
     let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     let version = json["info"]["version"]
         .as_str()

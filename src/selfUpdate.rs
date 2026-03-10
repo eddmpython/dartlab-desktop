@@ -1,8 +1,12 @@
 use std::path::PathBuf;
-use crate::ui;
+use crate::logger;
 
 const GITHUB_API: &str = "https://api.github.com/repos/eddmpython/dartlab-desktop/releases/latest";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub fn current_version() -> &'static str {
+    CURRENT_VERSION
+}
 
 pub fn cleanup_old() {
     let current = std::env::current_exe().ok();
@@ -14,52 +18,53 @@ pub fn cleanup_old() {
     }
 }
 
-pub fn check_and_update() {
-    let latest = match get_latest_release() {
-        Ok(r) => r,
-        Err(_) => return,
-    };
+pub struct SelfUpdateInfo {
+    pub version: String,
+    pub download_url: String,
+}
+
+pub fn check_update() -> Option<SelfUpdateInfo> {
+    let release = get_latest_release().ok()?;
 
     let current = format!("v{CURRENT_VERSION}");
-    if latest.tag == current {
-        return;
+    if release.tag == current {
+        return None;
     }
 
-    ui::print_info(&format!("런처 업데이트 발견: {current} → {}", latest.tag));
+    let url = release.asset_url?;
+    logger::log(&format!("런처 새 버전 발견: {} (현재: {current})", release.tag));
 
-    let download_url = match latest.asset_url {
-        Some(url) => url,
-        None => return,
-    };
+    Some(SelfUpdateInfo {
+        version: release.tag.trim_start_matches('v').to_string(),
+        download_url: url,
+    })
+}
 
-    let current_exe = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(_) => return,
-    };
-
+pub fn apply_update(info: &SelfUpdateInfo) -> Result<(), String> {
+    let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let new_exe = current_exe.with_extension("exe.new");
     let old_exe = current_exe.with_extension("exe.old");
 
-    if let Err(e) = download_file(&download_url, &new_exe) {
-        ui::print_warn(&format!("런처 다운로드 실패: {e}"));
+    logger::log(&format!("런처 업데이트 다운로드 시작: v{}", info.version));
+
+    if let Err(e) = download_file(&info.download_url, &new_exe) {
         std::fs::remove_file(&new_exe).ok();
-        return;
+        logger::log(&format!("런처 다운로드 실패: {e}"));
+        return Err(e);
     }
 
     if std::fs::rename(&current_exe, &old_exe).is_err() {
-        ui::print_warn("런처 교체 실패 (권한 부족)");
         std::fs::remove_file(&new_exe).ok();
-        return;
+        return Err("현재 exe 이름 변경 실패".into());
     }
 
     if std::fs::rename(&new_exe, &current_exe).is_err() {
         std::fs::rename(&old_exe, &current_exe).ok();
-        ui::print_warn("런처 교체 실패");
-        return;
+        return Err("새 exe 이름 변경 실패".into());
     }
 
-    ui::print_ok(&format!("런처 업데이트 완료 ({})", latest.tag));
-    ui::print_info("다음 실행 시 새 버전이 적용됩니다");
+    logger::log(&format!("런처 업데이트 완료: v{}", info.version));
+    Ok(())
 }
 
 struct ReleaseInfo {
@@ -68,19 +73,20 @@ struct ReleaseInfo {
 }
 
 fn get_latest_release() -> Result<ReleaseInfo, String> {
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("dartlab-desktop")
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
+    let resp = ureq::get(GITHUB_API)
+        .header("User-Agent", "dartlab-desktop")
+        .call()
         .map_err(|e| e.to_string())?;
 
-    let resp = client.get(GITHUB_API).send().map_err(|e| e.to_string())?;
-
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+    let status = resp.status().as_u16();
+    if status < 200 || status >= 300 {
+        return Err(format!("HTTP {}", status));
     }
 
-    let body = resp.text().map_err(|e| e.to_string())?;
+    let body = resp.into_body()
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
+
     let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
 
     let tag = json["tag_name"]
@@ -105,18 +111,17 @@ fn get_latest_release() -> Result<ReleaseInfo, String> {
 }
 
 fn download_file(url: &str, dest: &PathBuf) -> Result<(), String> {
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("dartlab-desktop")
-        .build()
-        .map_err(|e| e.to_string())?;
+    let resp = ureq::get(url)
+        .header("User-Agent", "dartlab-desktop")
+        .call()
+        .map_err(|e| format!("Download failed: {e}"))?;
 
-    let resp = client.get(url).send().map_err(|e| format!("Download failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+    let status = resp.status().as_u16();
+    if status < 200 || status >= 300 {
+        return Err(format!("HTTP {}", status));
     }
 
-    let bytes = resp.bytes().map_err(|e| e.to_string())?;
+    let bytes = resp.into_body().read_to_vec().map_err(|e| e.to_string())?;
     std::fs::write(dest, &bytes).map_err(|e| e.to_string())?;
     Ok(())
 }

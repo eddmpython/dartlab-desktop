@@ -10,7 +10,10 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 static SERVER_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
 
 pub fn is_port_in_use() -> bool {
-    std::net::TcpStream::connect(format!("127.0.0.1:{PORT}")).is_ok()
+    std::net::TcpStream::connect_timeout(
+        &format!("127.0.0.1:{PORT}").parse().unwrap(),
+        std::time::Duration::from_secs(1),
+    ).is_ok()
 }
 
 pub fn start_server(app_dir: &Path) -> Result<(), String> {

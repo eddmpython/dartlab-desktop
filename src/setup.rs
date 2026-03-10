@@ -1,7 +1,7 @@
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
-use crate::{paths, ui};
+use crate::paths;
 
 const UV_VERSION: &str = "0.6.14";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -18,8 +18,6 @@ pub fn ensure_uv(app_dir: &Path) -> Result<(), String> {
             return Ok(());
         }
     }
-
-    ui::print_step(1, 4, "uv 다운로드 중...");
 
     let uv_dir = app_dir.join("uv");
     std::fs::create_dir_all(&uv_dir).map_err(|e| e.to_string())?;
@@ -50,7 +48,6 @@ pub fn ensure_uv(app_dir: &Path) -> Result<(), String> {
         return Err("uv.exe not found after extraction".into());
     }
 
-    ui::print_ok("uv 설치 완료");
     Ok(())
 }
 
@@ -117,34 +114,39 @@ fn cleanup_legacy(app_dir: &Path) {
 }
 
 fn download_file(url: &str, dest: &Path) -> Result<(), String> {
-    let resp = reqwest::blocking::get(url).map_err(|e| format!("Download failed: {e}"))?;
+    let resp = ureq::get(url).call().map_err(|e| format!("Download failed: {e}"))?;
 
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+    let status = resp.status();
+    if status.as_u16() < 200 || status.as_u16() >= 300 {
+        return Err(format!("HTTP {}", status));
     }
 
-    let bytes = resp.bytes().map_err(|e| e.to_string())?;
+    let bytes = resp.into_body().read_to_vec().map_err(|e| e.to_string())?;
     std::fs::write(dest, &bytes).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
-    let status = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            &format!(
-                "Expand-Archive -Force -Path '{}' -DestinationPath '{}'",
-                zip_path.display(),
-                dest.display()
-            ),
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .status()
-        .map_err(|e| e.to_string())?;
+    let file = std::fs::File::open(zip_path).map_err(|e| e.to_string())?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
 
-    if !status.success() {
-        return Err("Expand-Archive failed".into());
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
+        let name = entry.name().to_string();
+
+        let out_path = dest.join(&name);
+
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out_path).map_err(|e| e.to_string())?;
+        } else {
+            if let Some(parent) = out_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            let mut buf = Vec::new();
+            std::io::Read::read_to_end(&mut entry, &mut buf).map_err(|e| format!("{e}"))?;
+            std::fs::write(&out_path, &buf).map_err(|e| e.to_string())?;
+        }
     }
+
     Ok(())
 }
