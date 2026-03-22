@@ -222,6 +222,10 @@ fn cleanup_legacy(app_dir: &Path) {
 }
 
 fn download_file(url: &str, dest: &Path) -> Result<(), String> {
+    download_file_with_limit(url, dest, 512 * 1024 * 1024)
+}
+
+fn download_file_with_limit(url: &str, dest: &Path, limit: u64) -> Result<(), String> {
     let mut last_err = String::new();
     for attempt in 0..3 {
         if attempt > 0 {
@@ -236,7 +240,11 @@ fn download_file(url: &str, dest: &Path) -> Result<(), String> {
                     last_err = format!("HTTP {}", status);
                     continue;
                 }
-                let bytes = resp.into_body().read_to_vec().map_err(|e| e.to_string())?;
+                let bytes = resp.into_body()
+                    .with_config()
+                    .limit(limit)
+                    .read_to_vec()
+                    .map_err(|e| e.to_string())?;
                 std::fs::write(dest, &bytes).map_err(|e| e.to_string())?;
                 return Ok(());
             }
