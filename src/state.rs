@@ -1,7 +1,19 @@
 use std::path::Path;
+use crate::paths;
 
 const STATE_FILE: &str = "state.json";
 const WARM_THRESHOLD_SECS: u64 = 7 * 24 * 3600;
+
+pub fn quick_health_check(app_dir: &Path) -> bool {
+    paths::dartlab_bin(app_dir).exists()
+        && paths::python_bin(app_dir).exists()
+        && paths::uv_bin(app_dir).exists()
+}
+
+pub fn clear_state(app_dir: &Path) {
+    let path = app_dir.join(STATE_FILE);
+    std::fs::remove_file(path).ok();
+}
 
 pub fn is_warm(app_dir: &Path) -> bool {
     let path = app_dir.join(STATE_FILE);

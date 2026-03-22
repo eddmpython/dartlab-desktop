@@ -1,7 +1,7 @@
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
-use crate::paths;
+use crate::{logger, paths};
 
 const UV_VERSION: &str = "0.6.14";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -10,13 +10,18 @@ pub fn ensure_uv(app_dir: &Path) -> Result<(), String> {
     let uv = paths::uv_bin(app_dir);
 
     if uv.exists() {
-        let out = Command::new(&uv)
+        let ok = Command::new(&uv)
             .arg("--version")
             .creation_flags(CREATE_NO_WINDOW)
-            .output();
-        if out.is_ok() {
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if ok {
             return Ok(());
         }
+        logger::log("uv.exe 존재하지만 실행 실패 — 재설치");
+        let uv_dir = app_dir.join("uv");
+        std::fs::remove_dir_all(&uv_dir).ok();
     }
 
     let uv_dir = app_dir.join("uv");
@@ -69,29 +74,62 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
             std::fs::remove_dir_all(&venv).ok();
         }
 
-        let status = Command::new(&uv)
+        let output = Command::new(&uv)
             .args(["venv", venv.to_str().unwrap(), "--python", "3.12"])
             .current_dir(app_dir)
             .creation_flags(CREATE_NO_WINDOW)
-            .status()
+            .output()
             .map_err(|e| e.to_string())?;
 
-        if !status.success() {
-            return Err("uv venv failed".into());
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            logger::log(&format!("uv venv stderr: {stderr}"));
+            return Err(format!("uv venv failed: {stderr}"));
         }
     }
 
-    if !dartlab_bin.exists() {
+    let needs_install = if dartlab_bin.exists() {
+        let ok = Command::new(&dartlab_bin)
+            .arg("--version")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !ok {
+            logger::log("dartlab.exe 존재하지만 실행 실패 — 재설치");
+            std::fs::remove_dir_all(&venv).ok();
+            let output = Command::new(&uv)
+                .args(["venv", venv.to_str().unwrap(), "--python", "3.12"])
+                .current_dir(app_dir)
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                logger::log(&format!("uv venv stderr: {stderr}"));
+                return Err(format!("uv venv failed: {stderr}"));
+            }
+            true
+        } else {
+            false
+        }
+    } else {
+        true
+    };
+
+    if needs_install {
         let python = paths::python_bin(app_dir);
-        let status = Command::new(&uv)
+        let output = Command::new(&uv)
             .args(["pip", "install", "dartlab[ai,llm]", "--python", python.to_str().unwrap()])
             .current_dir(app_dir)
             .creation_flags(CREATE_NO_WINDOW)
-            .status()
+            .output()
             .map_err(|e| e.to_string())?;
 
-        if !status.success() {
-            return Err("uv pip install dartlab[ai,llm] failed".into());
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            logger::log(&format!("uv pip install stderr: {stderr}"));
+            return Err(format!("uv pip install dartlab[ai,llm] failed: {stderr}"));
         }
     }
 
@@ -114,16 +152,30 @@ fn cleanup_legacy(app_dir: &Path) {
 }
 
 fn download_file(url: &str, dest: &Path) -> Result<(), String> {
-    let resp = ureq::get(url).call().map_err(|e| format!("Download failed: {e}"))?;
+    let mut last_err = String::new();
+    for attempt in 0..3 {
+        if attempt > 0 {
+            logger::log(&format!("다운로드 재시도 ({}/3): {url}", attempt + 1));
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        }
 
-    let status = resp.status();
-    if status.as_u16() < 200 || status.as_u16() >= 300 {
-        return Err(format!("HTTP {}", status));
+        match ureq::get(url).call() {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.as_u16() < 200 || status.as_u16() >= 300 {
+                    last_err = format!("HTTP {}", status);
+                    continue;
+                }
+                let bytes = resp.into_body().read_to_vec().map_err(|e| e.to_string())?;
+                std::fs::write(dest, &bytes).map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+            Err(e) => {
+                last_err = format!("Download failed: {e}");
+            }
+        }
     }
-
-    let bytes = resp.into_body().read_to_vec().map_err(|e| e.to_string())?;
-    std::fs::write(dest, &bytes).map_err(|e| e.to_string())?;
-    Ok(())
+    Err(last_err)
 }
 
 fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {

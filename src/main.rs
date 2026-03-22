@@ -10,6 +10,7 @@ mod selfUpdate;
 mod state;
 mod logger;
 
+use std::process::Command;
 use std::sync::mpsc;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
@@ -89,24 +90,41 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     color: #ea4647;
     font-size: 12px;
     margin-top: 8px;
-    max-width: 400px;
-    text-align: center;
+    max-width: 480px;
+    text-align: left;
     display: none;
+    white-space: pre-wrap;
+    user-select: all;
+    overflow-y: auto;
+    max-height: 180px;
+    line-height: 1.5;
+    padding: 0 12px;
+    word-break: break-all;
   }
-  #retry-btn {
+  .action-btns {
     display: none;
     margin-top: 12px;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .action-btns button {
     border: 1px solid #ea4647;
     background: transparent;
     color: #ea4647;
     border-radius: 6px;
-    padding: 8px 20px;
-    font-size: 13px;
+    padding: 8px 16px;
+    font-size: 12px;
     cursor: pointer;
     font-weight: 500;
     transition: background 0.2s;
   }
-  #retry-btn:hover { background: rgba(234,70,71,0.1); }
+  .action-btns button:hover { background: rgba(234,70,71,0.1); }
+  .action-btns .btn-secondary {
+    border-color: #334155;
+    color: #94a3b8;
+  }
+  .action-btns .btn-secondary:hover { background: rgba(148,163,184,0.1); }
   #update-banner {
     display: none;
     position: fixed;
@@ -148,7 +166,11 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
   <div class="bar-wrap"><div class="bar" id="bar"></div></div>
   <div id="status"></div>
   <div id="error"></div>
-  <button id="retry-btn" onclick="window.ipc.postMessage('retry')">다시 시도</button>
+  <div class="action-btns" id="action-btns">
+    <button onclick="window.ipc.postMessage('retry')">다시 시도</button>
+    <button class="btn-secondary" onclick="window.ipc.postMessage('open-log')">로그 열기</button>
+    <button class="btn-secondary" onclick="window.ipc.postMessage('reset')">초기화 후 재시도</button>
+  </div>
   <div id="update-banner">
     <div>
       <span class="label" id="update-label"></span><br>
@@ -166,11 +188,11 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
       var el = document.getElementById('error');
       el.textContent = msg;
       el.style.display = 'block';
-      document.getElementById('retry-btn').style.display = 'inline-block';
+      document.getElementById('action-btns').style.display = 'flex';
     }
     function clearError() {
       document.getElementById('error').style.display = 'none';
-      document.getElementById('retry-btn').style.display = 'none';
+      document.getElementById('action-btns').style.display = 'none';
     }
     function showUpdate(type, ver) {
       var label = type === 'launcher' ? '런처' : 'DartLab';
@@ -243,6 +265,32 @@ fn main() {
                     let p = ipc_proxy.clone();
                     let us = update_state_ipc.clone();
                     std::thread::spawn(move || {
+                        let (tx, _rx) = mpsc::channel::<AppEvent>();
+                        run_setup(tx, p, us);
+                    });
+                }
+                "open-log" => {
+                    if let Some(lp) = logger::log_path() {
+                        let dir = lp.parent().unwrap_or(&lp).to_path_buf();
+                        std::thread::spawn(move || {
+                            let _ = Command::new("explorer")
+                                .arg(dir)
+                                .spawn();
+                        });
+                    }
+                }
+                "reset" => {
+                    let _ = ipc_proxy.send_event(AppEvent::Log("clearError()".to_string()));
+                    let p = ipc_proxy.clone();
+                    let us = update_state_ipc.clone();
+                    std::thread::spawn(move || {
+                        let ad = paths::app_dir();
+                        state::clear_state(&ad);
+                        let venv = paths::venv_dir(&ad);
+                        if venv.exists() {
+                            std::fs::remove_dir_all(&venv).ok();
+                        }
+                        logger::log("사용자 초기화 — venv + state 삭제 후 콜드 스타트");
                         let (tx, _rx) = mpsc::channel::<AppEvent>();
                         run_setup(tx, p, us);
                     });
@@ -335,6 +383,7 @@ fn main() {
                 ..
             } => {
                 runner::stop_server();
+                ollama::stop_ollama();
                 *control_flow = ControlFlow::Exit;
             }
             _ => {}
@@ -365,7 +414,13 @@ fn run_setup(
     };
 
     let fail = |msg: &str| {
-        let escaped = msg.replace('\'', "\\'");
+        let mut full = msg.to_string();
+        if let Some(lp) = logger::log_path() {
+            if !full.contains("로그 파일:") {
+                full.push_str(&format!("\n\n런처 로그: {}", lp.display()));
+            }
+        }
+        let escaped = full.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n");
         js(&format!("setError('{escaped}')"));
         logger::log(&format!("ERROR: {msg}"));
     };
@@ -398,7 +453,13 @@ fn run_setup(
         });
     }
 
-    let warm = state::is_warm(&app_dir);
+    let mut warm = state::is_warm(&app_dir);
+
+    if warm && !state::quick_health_check(&app_dir) {
+        logger::log("웜 스타트 헬스체크 실패 — 콜드 스타트로 전환");
+        state::clear_state(&app_dir);
+        warm = false;
+    }
 
     if warm {
         let gpu = ollama::gpu_label();
@@ -433,9 +494,9 @@ fn run_setup(
         }
 
         progress(50, "서버 시작 중...");
-        if let Err(e) = runner::start_server(&app_dir) {
-            fail(&format!("서버 시작 실패: {e}"));
-            return;
+        match runner::start_server(&app_dir) {
+            Ok(_) => {}
+            Err(e) => { fail(&format!("서버 시작 실패: {e}")); return; }
         }
 
         progress(70, "서버 응답 대기 중...");
@@ -493,13 +554,13 @@ fn run_setup(
     }
 
     progress(85, "서버 시작 중...");
-    if let Err(e) = runner::start_server(&app_dir) {
-        fail(&format!("서버 시작 실패: {e}"));
-        return;
+    match runner::start_server(&app_dir) {
+        Ok(_) => {}
+        Err(e) => { fail(&format!("서버 시작 실패: {e}")); return; }
     }
 
     progress(90, "서버 응답 대기 중...");
-    match runner::wait_for_server(30) {
+    match runner::wait_for_server(60) {
         Ok(()) => {
             progress(100, "준비 완료!");
             state::mark_success(&app_dir);
