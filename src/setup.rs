@@ -144,85 +144,66 @@ pub fn ensure_ui_build(app_dir: &Path) -> Result<(), String> {
         return Ok(());
     }
 
-    if !ui_dir.join("package.json").exists() {
-        return Err("dartlab UI 소스를 찾을 수 없습니다 (package.json 없음)".into());
+    logger::log("UI 빌드 파일 없음 — GitHub에서 다운로드");
+
+    let zip_url = "https://github.com/eddmpython/dartlab/archive/refs/heads/master.zip";
+    let zip_path = app_dir.join("dartlab-ui.zip");
+    download_file(zip_url, &zip_path)?;
+
+    let extract_dir = app_dir.join("_dartlab_ui_tmp");
+    if extract_dir.exists() {
+        std::fs::remove_dir_all(&extract_dir).ok();
+    }
+    std::fs::create_dir_all(&extract_dir).map_err(|e| e.to_string())?;
+    extract_zip(&zip_path, &extract_dir)?;
+    std::fs::remove_file(&zip_path).ok();
+
+    let src_build = find_build_dir(&extract_dir)
+        .ok_or("다운로드한 레포에서 ui/build 디렉토리를 찾을 수 없습니다")?;
+
+    std::fs::create_dir_all(&ui_dir).map_err(|e| e.to_string())?;
+
+    if build_dir.exists() {
+        std::fs::remove_dir_all(&build_dir).ok();
+    }
+    copy_dir_all(&src_build, &build_dir)?;
+
+    std::fs::remove_dir_all(&extract_dir).ok();
+
+    if !build_dir.join("index.html").exists() {
+        return Err("UI 빌드 파일 복사 완료되었으나 index.html이 없습니다".into());
     }
 
-    let npm = find_npm()?;
-
-    logger::log("dartlab UI npm install 실행 중...");
-    let output = Command::new(&npm)
-        .args(["install"])
-        .current_dir(&ui_dir)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("npm install 실행 실패: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        logger::log(&format!("npm install stderr: {stderr}"));
-        return Err(format!("npm install 실패: {stderr}"));
-    }
-
-    logger::log("dartlab UI 빌드 중...");
-    let output = Command::new(&npm)
-        .args(["run", "build"])
-        .current_dir(&ui_dir)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("npm run build 실행 실패: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        logger::log(&format!("npm run build stderr: {stderr}"));
-        return Err(format!("UI 빌드 실패: {stderr}"));
-    }
-
-    if !build_dir.exists() || !build_dir.join("index.html").exists() {
-        return Err("UI 빌드 완료되었으나 build/index.html이 생성되지 않았습니다".into());
-    }
-
-    logger::log("dartlab UI 빌드 완료");
+    logger::log("UI 빌드 파일 설치 완료");
     Ok(())
 }
 
-fn find_npm() -> Result<String, String> {
-    if Command::new("npm")
-        .arg("--version")
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-    {
-        return Ok("npm".to_string());
-    }
-
-    let candidates = [
-        r"C:\Program Files\nodejs\npm.cmd",
-        r"C:\Program Files (x86)\nodejs\npm.cmd",
-    ];
-
-    for c in &candidates {
-        if std::path::Path::new(c).exists() {
-            return Ok(c.to_string());
-        }
-    }
-
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let nvm_dir = std::path::Path::new(&appdata).join("nvm");
-        if nvm_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
-                for entry in entries.flatten() {
-                    let npm_cmd = entry.path().join("npm.cmd");
-                    if npm_cmd.exists() {
-                        return Ok(npm_cmd.to_string_lossy().to_string());
-                    }
-                }
+fn find_build_dir(extract_dir: &Path) -> Option<std::path::PathBuf> {
+    if let Ok(entries) = std::fs::read_dir(extract_dir) {
+        for entry in entries.flatten() {
+            let candidate = entry.path()
+                .join("src").join("dartlab").join("ui").join("build");
+            if candidate.join("index.html").exists() {
+                return Some(candidate);
             }
         }
     }
+    None
+}
 
-    Err("Node.js가 설치되어 있지 않습니다. https://nodejs.org 에서 설치 후 다시 시도해 주세요.".into())
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+    for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let ty = entry.file_type().map_err(|e| e.to_string())?;
+        let dst_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path)?;
+        } else {
+            std::fs::copy(entry.path(), &dst_path).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 fn cleanup_legacy(app_dir: &Path) {
