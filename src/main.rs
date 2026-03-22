@@ -493,6 +493,12 @@ fn run_setup(
             return;
         }
 
+        progress(40, "UI 빌드 확인 중...");
+        if let Err(e) = setup::ensure_ui_build(&app_dir) {
+            fail(&format!("UI 빌드 실패: {e}"));
+            return;
+        }
+
         progress(50, "서버 시작 중...");
         match runner::start_server(&app_dir) {
             Ok(_) => {}
@@ -550,6 +556,12 @@ fn run_setup(
     progress(70, "LLM 모델 다운로드 중...");
     if let Err(e) = ollama::ensure_model() {
         fail(&format!("모델 다운로드 실패: {e}"));
+        return;
+    }
+
+    progress(80, "UI 빌드 확인 중...");
+    if let Err(e) = setup::ensure_ui_build(&app_dir) {
+        fail(&format!("UI 빌드 실패: {e}"));
         return;
     }
 

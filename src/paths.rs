@@ -21,3 +21,12 @@ pub fn python_bin(app_dir: &std::path::Path) -> PathBuf {
 pub fn dartlab_bin(app_dir: &std::path::Path) -> PathBuf {
     venv_dir(app_dir).join("Scripts").join("dartlab.exe")
 }
+
+pub fn dartlab_ui_dir(app_dir: &std::path::Path) -> PathBuf {
+    venv_dir(app_dir)
+        .join("Lib")
+        .join("site-packages")
+        .join("dartlab")
+        .join("ui")
+}
+
