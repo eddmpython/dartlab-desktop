@@ -1,7 +1,7 @@
+use crate::{logger, paths};
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
-use crate::{logger, paths};
 
 const UV_VERSION: &str = "0.6.14";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -120,7 +120,13 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
     if needs_install {
         let python = paths::python_bin(app_dir);
         let output = Command::new(&uv)
-            .args(["pip", "install", "dartlab[ai,llm]", "--python", python.to_str().unwrap()])
+            .args([
+                "pip",
+                "install",
+                "dartlab[ai,llm]",
+                "--python",
+                python.to_str().unwrap(),
+            ])
             .current_dir(app_dir)
             .creation_flags(CREATE_NO_WINDOW)
             .output()
@@ -149,7 +155,10 @@ pub fn ensure_ui_build(app_dir: &Path) -> Result<(), String> {
                 if saved.trim() == ver.trim() {
                     return Ok(());
                 }
-                logger::log(&format!("dartlab 버전 변경 감지 ({} → {ver}) — UI 재다운로드", saved.trim()));
+                logger::log(&format!(
+                    "dartlab 버전 변경 감지 ({} → {ver}) — UI 재다운로드",
+                    saved.trim()
+                ));
             } else {
                 return Ok(());
             }
@@ -214,8 +223,12 @@ fn get_dartlab_version(app_dir: &Path) -> Option<String> {
 fn find_build_dir(extract_dir: &Path) -> Option<std::path::PathBuf> {
     if let Ok(entries) = std::fs::read_dir(extract_dir) {
         for entry in entries.flatten() {
-            let candidate = entry.path()
-                .join("src").join("dartlab").join("ui").join("build");
+            let candidate = entry
+                .path()
+                .join("src")
+                .join("dartlab")
+                .join("ui")
+                .join("build");
             if candidate.join("index.html").exists() {
                 return Some(candidate);
             }
@@ -273,7 +286,8 @@ fn download_file_with_limit(url: &str, dest: &Path, limit: u64) -> Result<(), St
                     last_err = format!("HTTP {}", status);
                     continue;
                 }
-                let bytes = resp.into_body()
+                let bytes = resp
+                    .into_body()
                     .with_config()
                     .limit(limit)
                     .read_to_vec()

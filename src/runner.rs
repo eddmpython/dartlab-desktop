@@ -1,9 +1,9 @@
+use crate::{logger, paths};
 use std::fs;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use crate::{logger, paths};
 
 const PORT: u16 = 8400;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -15,7 +15,8 @@ pub fn is_port_in_use() -> bool {
     std::net::TcpStream::connect_timeout(
         &format!("127.0.0.1:{PORT}").parse().unwrap(),
         std::time::Duration::from_secs(1),
-    ).is_ok()
+    )
+    .is_ok()
 }
 
 fn verify_dartlab_server() -> bool {
@@ -26,11 +27,16 @@ fn verify_dartlab_server() -> bool {
 
 pub fn start_server(app_dir: &Path) -> Result<PathBuf, String> {
     if is_port_in_use() {
+        if let Ok(mut lock) = SERVER_LOG.lock() {
+            *lock = None;
+        }
         if verify_dartlab_server() {
             let dummy = app_dir.join("logs").join("dartlab-server-existing.log");
             return Ok(dummy);
         }
-        return Err(format!("포트 {PORT}이 다른 프로세스에 의해 사용 중입니다. 해당 프로세스를 종료하고 다시 시도해 주세요."));
+        return Err(format!(
+            "포트 {PORT}이 다른 프로세스에 의해 사용 중입니다. 해당 프로세스를 종료하고 다시 시도해 주세요."
+        ));
     }
 
     let dartlab = paths::dartlab_bin(app_dir);
@@ -43,9 +49,10 @@ pub fn start_server(app_dir: &Path) -> Result<PathBuf, String> {
         .as_secs();
     let server_log_path = log_dir.join(format!("dartlab-server-{ts}.log"));
 
-    let log_file = fs::File::create(&server_log_path)
-        .map_err(|e| format!("서버 로그 파일 생성 실패: {e}"))?;
-    let log_file_err = log_file.try_clone()
+    let log_file =
+        fs::File::create(&server_log_path).map_err(|e| format!("서버 로그 파일 생성 실패: {e}"))?;
+    let log_file_err = log_file
+        .try_clone()
         .map_err(|e| format!("로그 파일 복제 실패: {e}"))?;
 
     let child = Command::new(&dartlab)
@@ -66,7 +73,10 @@ pub fn start_server(app_dir: &Path) -> Result<PathBuf, String> {
         *lock = Some(server_log_path.clone());
     }
 
-    logger::log(&format!("dartlab 서버 시작 (로그: {})", server_log_path.display()));
+    logger::log(&format!(
+        "dartlab 서버 시작 (로그: {})",
+        server_log_path.display()
+    ));
     Ok(server_log_path)
 }
 
@@ -108,7 +118,9 @@ pub fn wait_for_server(timeout_secs: u64) -> Result<(), String> {
         if std::net::TcpStream::connect_timeout(
             &format!("127.0.0.1:{PORT}").parse().unwrap(),
             std::time::Duration::from_secs(1),
-        ).is_ok() {
+        )
+        .is_ok()
+        {
             return Ok(());
         }
         std::thread::sleep(std::time::Duration::from_millis(300));
@@ -131,6 +143,9 @@ pub fn stop_server() {
             child.kill().ok();
             child.wait().ok();
         }
+        *lock = None;
+    }
+    if let Ok(mut lock) = SERVER_LOG.lock() {
         *lock = None;
     }
 }

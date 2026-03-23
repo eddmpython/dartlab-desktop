@@ -1,8 +1,8 @@
+use crate::paths;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use crate::paths;
 
 static LOG_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
@@ -56,8 +56,15 @@ fn cleanup_old_logs(log_dir: &std::path::Path) {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name.starts_with("dartlab-") && name.ends_with(".log") {
-                let ts_str = name.trim_start_matches("dartlab-").trim_end_matches(".log");
+            let ts_str = name
+                .strip_prefix("dartlab-server-")
+                .and_then(|s| s.strip_suffix(".log"))
+                .or_else(|| {
+                    name.strip_prefix("dartlab-")
+                        .and_then(|s| s.strip_suffix(".log"))
+                });
+
+            if let Some(ts_str) = ts_str {
                 if let Ok(ts) = ts_str.parse::<u64>() {
                     if ts < cutoff {
                         fs::remove_file(entry.path()).ok();

@@ -29,4 +29,3 @@ pub fn dartlab_ui_dir(app_dir: &std::path::Path) -> PathBuf {
         .join("dartlab")
         .join("ui")
 }
-

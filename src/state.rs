@@ -1,5 +1,5 @@
-use std::path::Path;
 use crate::paths;
+use std::path::Path;
 
 const STATE_FILE: &str = "state.json";
 const WARM_THRESHOLD_SECS: u64 = 7 * 24 * 3600;

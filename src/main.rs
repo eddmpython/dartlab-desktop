@@ -1,21 +1,21 @@
 #![windows_subsystem = "windows"]
 
-mod setup;
-mod runner;
-mod updater;
+mod logger;
 mod ollama;
 mod paths;
+mod runner;
 #[allow(non_snake_case)]
 mod selfUpdate;
+mod setup;
 mod state;
-mod logger;
+mod updater;
 
 use std::process::Command;
 use std::sync::mpsc;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tao::window::{Icon, WindowBuilder};
-use wry::{WebViewBuilder, Rect};
+use wry::{Rect, WebViewBuilder};
 
 #[derive(Debug)]
 enum AppEvent {
@@ -191,6 +191,7 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
       document.getElementById('action-btns').style.display = 'flex';
     }
     function clearError() {
+      document.getElementById('error').textContent = '';
       document.getElementById('error').style.display = 'none';
       document.getElementById('action-btns').style.display = 'none';
     }
@@ -219,7 +220,10 @@ const ICO_BYTES: &[u8] = include_bytes!("../assets/icon.ico");
 fn main() {
     install_panic_hook();
     logger::init();
-    logger::log(&format!("DartLab 런처 시작 v{}", selfUpdate::current_version()));
+    logger::log(&format!(
+        "DartLab 런처 시작 v{}",
+        selfUpdate::current_version()
+    ));
     selfUpdate::cleanup_old();
 
     if !acquire_mutex() {
@@ -270,13 +274,12 @@ fn main() {
                     });
                 }
                 "open-log" => {
-                    if let Some(lp) = logger::log_path() {
-                        let dir = lp.parent().unwrap_or(&lp).to_path_buf();
-                        std::thread::spawn(move || {
-                            let _ = Command::new("explorer")
-                                .arg(dir)
-                                .spawn();
-                        });
+                    let target = runner::server_log_path()
+                        .filter(|p| p.exists())
+                        .or_else(|| logger::log_path().filter(|p| p.exists()))
+                        .or_else(logger::log_path);
+                    if let Some(path) = target {
+                        std::thread::spawn(move || open_in_explorer(&path));
                     }
                 }
                 "reset" => {
@@ -284,6 +287,8 @@ fn main() {
                     let p = ipc_proxy.clone();
                     let us = update_state_ipc.clone();
                     std::thread::spawn(move || {
+                        runner::stop_server();
+                        ollama::stop_ollama();
                         let ad = paths::app_dir();
                         state::clear_state(&ad);
                         let venv = paths::venv_dir(&ad);
@@ -420,7 +425,10 @@ fn run_setup(
                 full.push_str(&format!("\n\n런처 로그: {}", lp.display()));
             }
         }
-        let escaped = full.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n");
+        let escaped = full
+            .replace('\\', "\\\\")
+            .replace('\'', "\\'")
+            .replace('\n', "\\n");
         js(&format!("setError('{escaped}')"));
         logger::log(&format!("ERROR: {msg}"));
     };
@@ -502,7 +510,10 @@ fn run_setup(
         progress(50, "서버 시작 중...");
         match runner::start_server(&app_dir) {
             Ok(_) => {}
-            Err(e) => { fail(&format!("서버 시작 실패: {e}")); return; }
+            Err(e) => {
+                fail(&format!("서버 시작 실패: {e}"));
+                return;
+            }
         }
 
         progress(70, "서버 응답 대기 중...");
@@ -568,7 +579,10 @@ fn run_setup(
     progress(85, "서버 시작 중...");
     match runner::start_server(&app_dir) {
         Ok(_) => {}
-        Err(e) => { fail(&format!("서버 시작 실패: {e}")); return; }
+        Err(e) => {
+            fail(&format!("서버 시작 실패: {e}"));
+            return;
+        }
     }
 
     progress(90, "서버 응답 대기 중...");
@@ -585,21 +599,15 @@ fn run_setup(
 }
 
 fn acquire_mutex() -> bool {
-    use windows_sys::Win32::System::Threading::CreateMutexW;
     use windows_sys::Win32::Foundation::GetLastError;
+    use windows_sys::Win32::System::Threading::CreateMutexW;
 
     const ERROR_ALREADY_EXISTS: u32 = 183;
 
-    let name: Vec<u16> = "Global\\DartLabDesktopMutex\0"
-        .encode_utf16()
-        .collect();
+    let name: Vec<u16> = "Global\\DartLabDesktopMutex\0".encode_utf16().collect();
 
     unsafe {
-        let handle = CreateMutexW(
-            std::ptr::null(),
-            0,
-            name.as_ptr(),
-        );
+        let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
 
         if handle.is_null() {
             return false;
@@ -616,7 +624,12 @@ fn show_already_running() {
     let title: Vec<u16> = "DartLab\0".encode_utf16().collect();
 
     unsafe {
-        MessageBoxW(std::ptr::null_mut(), msg.as_ptr(), title.as_ptr(), 0x00000040);
+        MessageBoxW(
+            std::ptr::null_mut(),
+            msg.as_ptr(),
+            title.as_ptr(),
+            0x00000040,
+        );
     }
 }
 
@@ -639,7 +652,12 @@ fn install_panic_hook() {
         let wide_title: Vec<u16> = "DartLab 오류\0".encode_utf16().collect();
 
         unsafe {
-            MessageBoxW(std::ptr::null_mut(), wide_msg.as_ptr(), wide_title.as_ptr(), 0x00000010);
+            MessageBoxW(
+                std::ptr::null_mut(),
+                wide_msg.as_ptr(),
+                wide_title.as_ptr(),
+                0x00000010,
+            );
         }
     }));
 }
@@ -647,16 +665,24 @@ fn install_panic_hook() {
 fn load_window_icon() -> Option<Icon> {
     let ico = ICO_BYTES;
 
-    if ico.len() < 6 { return None; }
+    if ico.len() < 6 {
+        return None;
+    }
     let count = u16::from_le_bytes([ico[4], ico[5]]) as usize;
-    if count == 0 || ico.len() < 6 + count * 16 { return None; }
+    if count == 0 || ico.len() < 6 + count * 16 {
+        return None;
+    }
 
     let mut best_idx = 0usize;
     let mut best_area = 0u32;
     for i in 0..count {
         let p = 6 + i * 16;
         let w = if ico[p] == 0 { 256u32 } else { ico[p] as u32 };
-        let h = if ico[p + 1] == 0 { 256u32 } else { ico[p + 1] as u32 };
+        let h = if ico[p + 1] == 0 {
+            256u32
+        } else {
+            ico[p + 1] as u32
+        };
         if w * h > best_area {
             best_area = w * h;
             best_idx = i;
@@ -665,9 +691,12 @@ fn load_window_icon() -> Option<Icon> {
 
     let p = 6 + best_idx * 16;
     let data_size = u32::from_le_bytes([ico[p + 8], ico[p + 9], ico[p + 10], ico[p + 11]]) as usize;
-    let data_offset = u32::from_le_bytes([ico[p + 12], ico[p + 13], ico[p + 14], ico[p + 15]]) as usize;
+    let data_offset =
+        u32::from_le_bytes([ico[p + 12], ico[p + 13], ico[p + 14], ico[p + 15]]) as usize;
 
-    if data_offset + data_size > ico.len() { return None; }
+    if data_offset + data_size > ico.len() {
+        return None;
+    }
     let data = &ico[data_offset..data_offset + data_size];
 
     if data.len() >= 4 && data[0..4] == [0x89, 0x50, 0x4E, 0x47] {
@@ -680,14 +709,24 @@ fn load_window_icon() -> Option<Icon> {
     }
 
     let entry_w = if ico[p] == 0 { 256u32 } else { ico[p] as u32 };
-    let entry_h = if ico[p + 1] == 0 { 256u32 } else { ico[p + 1] as u32 };
+    let entry_h = if ico[p + 1] == 0 {
+        256u32
+    } else {
+        ico[p + 1] as u32
+    };
 
-    if data.len() < 40 { return None; }
+    if data.len() < 40 {
+        return None;
+    }
     let bpp = u16::from_le_bytes([data[14], data[15]]);
-    if bpp != 32 { return None; }
+    if bpp != 32 {
+        return None;
+    }
 
     let pixel_count = (entry_w * entry_h) as usize;
-    if data.len() < 40 + pixel_count * 4 { return None; }
+    if data.len() < 40 + pixel_count * 4 {
+        return None;
+    }
 
     let pixels = &data[40..40 + pixel_count * 4];
     let mut rgba = vec![0u8; pixel_count * 4];
@@ -705,4 +744,20 @@ fn load_window_icon() -> Option<Icon> {
     }
 
     Icon::from_rgba(rgba, entry_w, entry_h).ok()
+}
+
+fn open_in_explorer(path: &std::path::Path) {
+    let spawn = if path.is_file() {
+        Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .spawn()
+    } else if path.exists() {
+        Command::new("explorer").arg(path).spawn()
+    } else if let Some(parent) = path.parent() {
+        Command::new("explorer").arg(parent).spawn()
+    } else {
+        return;
+    };
+
+    spawn.ok();
 }

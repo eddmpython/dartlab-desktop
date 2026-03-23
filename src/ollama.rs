@@ -1,9 +1,9 @@
+use crate::logger;
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use crate::logger;
 
 const DEFAULT_MODEL: &str = "qwen3:4b";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -90,8 +90,12 @@ fn resolve_ollama_bin() -> Option<String> {
 
     let candidates = [
         dirs::data_local_dir().map(|d| d.join("Programs").join("Ollama").join("ollama.exe")),
-        Some(std::path::PathBuf::from(r"C:\Program Files\Ollama\ollama.exe")),
-        Some(std::path::PathBuf::from(r"C:\Program Files (x86)\Ollama\ollama.exe")),
+        Some(std::path::PathBuf::from(
+            r"C:\Program Files\Ollama\ollama.exe",
+        )),
+        Some(std::path::PathBuf::from(
+            r"C:\Program Files (x86)\Ollama\ollama.exe",
+        )),
     ];
 
     for candidate in &candidates {
@@ -113,13 +117,41 @@ fn is_tcp_reachable() -> bool {
     std::net::TcpStream::connect_timeout(
         &"127.0.0.1:11434".parse().unwrap(),
         std::time::Duration::from_secs(1),
-    ).is_ok()
+    )
+    .is_ok()
 }
 
 fn is_healthy() -> bool {
-    ureq::get("http://127.0.0.1:11434/api/tags")
+    ureq::get("http://127.0.0.1:11434/api/tags").call().is_ok()
+}
+
+fn fetch_model_names() -> Result<Vec<String>, String> {
+    let resp = ureq::get("http://127.0.0.1:11434/api/tags")
         .call()
-        .is_ok()
+        .map_err(|e| format!("Ollama tags 조회 실패: {e}"))?;
+
+    let body = resp
+        .into_body()
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
+
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("Ollama tags 파싱 실패: {e}"))?;
+
+    let models = json
+        .get("models")
+        .and_then(|v| v.as_array())
+        .ok_or("Ollama tags 응답에 models 필드가 없습니다".to_string())?;
+
+    Ok(models
+        .iter()
+        .filter_map(|model| model.get("name").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .collect())
+}
+
+fn has_model(model_name: &str) -> Result<bool, String> {
+    Ok(fetch_model_names()?.iter().any(|name| name == model_name))
 }
 
 pub fn ensure_ollama(app_dir: &Path) -> Result<(), String> {
@@ -136,7 +168,8 @@ pub fn ensure_ollama(app_dir: &Path) -> Result<(), String> {
         .call()
         .map_err(|e| format!("Ollama 다운로드 실패: {e}"))?;
 
-    let bytes = resp.into_body()
+    let bytes = resp
+        .into_body()
         .with_config()
         .limit(512 * 1024 * 1024)
         .read_to_vec()
@@ -158,7 +191,9 @@ pub fn ensure_ollama(app_dir: &Path) -> Result<(), String> {
     }
 
     if resolve_ollama_bin().is_none() {
-        return Err("Ollama 설치 후에도 실행 파일을 찾을 수 없습니다. 시스템을 재시작해 주세요.".into());
+        return Err(
+            "Ollama 설치 후에도 실행 파일을 찾을 수 없습니다. 시스템을 재시작해 주세요.".into(),
+        );
     }
 
     logger::log("Ollama 설치 완료");
@@ -180,8 +215,7 @@ pub fn ensure_serve() -> Result<(), String> {
         }
     }
 
-    let bin = resolve_ollama_bin()
-        .ok_or("Ollama 실행 파일을 찾을 수 없습니다")?;
+    let bin = resolve_ollama_bin().ok_or("Ollama 실행 파일을 찾을 수 없습니다")?;
 
     logger::log("Ollama serve 시작 중...");
     let child = Command::new(&bin)
@@ -208,18 +242,9 @@ pub fn ensure_serve() -> Result<(), String> {
 }
 
 pub fn ensure_model() -> Result<(), String> {
-    let bin = resolve_ollama_bin()
-        .ok_or("Ollama 실행 파일을 찾을 수 없습니다")?;
+    let bin = resolve_ollama_bin().ok_or("Ollama 실행 파일을 찾을 수 없습니다")?;
 
-    let output = Command::new(&bin)
-        .args(["list"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("ollama list 실패: {e}"))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let model_base = DEFAULT_MODEL.split(':').next().unwrap_or(DEFAULT_MODEL);
-    if stdout.lines().any(|l| l.contains(model_base)) {
+    if has_model(DEFAULT_MODEL)? {
         return Ok(());
     }
 
@@ -245,17 +270,10 @@ pub fn ensure_model() -> Result<(), String> {
 }
 
 fn verify_model_loaded() -> Result<(), String> {
-    let resp = ureq::get("http://127.0.0.1:11434/api/tags")
-        .call()
-        .map_err(|e| format!("모델 검증 실패: {e}"))?;
-
-    let body: String = resp.into_body()
-        .read_to_string()
-        .map_err(|e| e.to_string())?;
-
-    let model_base = DEFAULT_MODEL.split(':').next().unwrap_or(DEFAULT_MODEL);
-    if !body.contains(model_base) {
-        return Err(format!("{DEFAULT_MODEL} 모델이 Ollama에 등록되지 않았습니다"));
+    if !has_model(DEFAULT_MODEL)? {
+        return Err(format!(
+            "{DEFAULT_MODEL} 모델이 Ollama에 등록되지 않았습니다"
+        ));
     }
 
     Ok(())

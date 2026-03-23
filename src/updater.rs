@@ -1,7 +1,7 @@
+use crate::paths;
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
-use crate::paths;
 
 const PYPI_URL: &str = "https://pypi.org/pypi/dartlab/json";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -22,7 +22,14 @@ pub fn do_update(app_dir: &Path) -> Result<(), String> {
     let python = paths::python_bin(app_dir);
 
     let status = Command::new(&uv)
-        .args(["pip", "install", "--upgrade", "dartlab[ai,llm]", "--python", python.to_str().unwrap()])
+        .args([
+            "pip",
+            "install",
+            "--upgrade",
+            "dartlab[ai,llm]",
+            "--python",
+            python.to_str().unwrap(),
+        ])
         .current_dir(app_dir)
         .creation_flags(CREATE_NO_WINDOW)
         .status()
@@ -58,7 +65,8 @@ fn get_pypi_version() -> Result<String, String> {
         .call()
         .map_err(|e| format!("PyPI request failed: {e}"))?;
 
-    let body = resp.into_body()
+    let body = resp
+        .into_body()
         .read_to_string()
         .map_err(|e| e.to_string())?;
 

@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use crate::logger;
+use std::path::PathBuf;
 
 const GITHUB_API: &str = "https://api.github.com/repos/eddmpython/dartlab-desktop/releases/latest";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -32,7 +32,10 @@ pub fn check_update() -> Option<SelfUpdateInfo> {
     }
 
     let url = release.asset_url?;
-    logger::log(&format!("런처 새 버전 발견: {} (현재: {current})", release.tag));
+    logger::log(&format!(
+        "런처 새 버전 발견: {} (현재: {current})",
+        release.tag
+    ));
 
     Some(SelfUpdateInfo {
         version: release.tag.trim_start_matches('v').to_string(),
@@ -83,29 +86,25 @@ fn get_latest_release() -> Result<ReleaseInfo, String> {
         return Err(format!("HTTP {}", status));
     }
 
-    let body = resp.into_body()
+    let body = resp
+        .into_body()
         .read_to_string()
         .map_err(|e| e.to_string())?;
 
     let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
 
-    let tag = json["tag_name"]
-        .as_str()
-        .ok_or("No tag_name")?
-        .to_string();
+    let tag = json["tag_name"].as_str().ok_or("No tag_name")?.to_string();
 
-    let asset_url = json["assets"]
-        .as_array()
-        .and_then(|assets| {
-            assets.iter().find_map(|a| {
-                let name = a["name"].as_str()?;
-                if name == "DartLab.exe" {
-                    a["browser_download_url"].as_str().map(|s| s.to_string())
-                } else {
-                    None
-                }
-            })
-        });
+    let asset_url = json["assets"].as_array().and_then(|assets| {
+        assets.iter().find_map(|a| {
+            let name = a["name"].as_str()?;
+            if name == "DartLab.exe" {
+                a["browser_download_url"].as_str().map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+    });
 
     Ok(ReleaseInfo { tag, asset_url })
 }
