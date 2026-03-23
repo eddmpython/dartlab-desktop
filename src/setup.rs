@@ -137,6 +137,9 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
             logger::log(&format!("uv pip install stderr: {stderr}"));
             return Err(format!("uv pip install dartlab[ai,llm] failed: {stderr}"));
         }
+        logger::log("DartLab 설치 완료");
+    } else {
+        logger::log("DartLab 설치 검증 완료");
     }
 
     Ok(())

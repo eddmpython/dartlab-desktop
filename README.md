@@ -1,126 +1,162 @@
 # DartLab Desktop
 
-DartLab AI 기업분석을 **더블클릭 한 번**으로 실행하는 Windows 네이티브 런처.
+로컬 AI 기업분석을 Windows에서 바로 실행하는 1파일 런처.
 
-Python, 패키지 매니저, LLM 엔진을 몰라도 된다. `DartLab.exe`를 실행하면 필요한 환경이 자동으로 구성되고, 브라우저에서 AI 기업분석이 바로 열린다. Rust 단일 바이너리 ~2.7MB.
+[![Release](https://img.shields.io/github/v/release/eddmpython/dartlab-desktop?display_name=tag)](https://github.com/eddmpython/dartlab-desktop/releases)
+[![License](https://img.shields.io/github/license/eddmpython/dartlab-desktop)](LICENSE)
+[![Release Workflow](https://img.shields.io/github/actions/workflow/status/eddmpython/dartlab-desktop/release.yml?label=release)](https://github.com/eddmpython/dartlab-desktop/actions/workflows/release.yml)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)](https://github.com/eddmpython/dartlab-desktop/releases)
+[![Runtime](https://img.shields.io/badge/runtime-Rust-000000?logo=rust)](https://www.rust-lang.org/)
 
-## 주요 기능
+[Releases](https://github.com/eddmpython/dartlab-desktop/releases) · [DartLab 본체](https://github.com/eddmpython/dartlab) · [문서](https://eddmpython.github.io/dartlab/) · [한국어 문서](https://github.com/eddmpython/dartlab/blob/main/README_KR.md) · [이슈](https://github.com/eddmpython/dartlab-desktop/issues)
 
-| 기능 | 설명 |
-|------|------|
-| **원클릭 실행** | 더블클릭만으로 Python + LLM + 서버 자동 설치 및 실행 |
-| **로컬 AI** | Ollama 기반 로컬 LLM — 데이터가 외부로 나가지 않음 |
-| **GPU 자동 감지** | NVIDIA(CUDA), AMD(ROCm), Intel(GPU), CPU 자동 판별 |
-| **웜 스타트** | 재실행 시 5초 내 브라우저 오픈 |
-| **자동 업데이트** | 런처 + DartLab 패키지 모두 사용자 승인 기반 업데이트 |
-| **크래시 복구** | 에러 발생 시 로그 경로 안내 + 재시도 버튼 |
+`DartLab.exe` 하나만 실행하면 Python, `dartlab`, Ollama, 모델, Web UI 준비까지 자동으로 끝낸다. 비개발자 기준으로는 "다운로드 후 더블클릭", 개발자 기준으로는 "Windows용 self-contained launcher"가 목표다.
 
-## 다운로드
+## 무엇을 해결하나
 
-[GitHub Releases](https://github.com/eddmpython/dartlab-desktop/releases)에서 `DartLab.exe`를 다운로드.
+`dartlab` 본체는 강력하지만, 일반 사용자는 Python 환경, 패키지 설치, 로컬 LLM, 모델 다운로드, 브라우저 실행까지 직접 맞추기 어렵다. DartLab Desktop은 이 진입장벽을 없애는 Windows 네이티브 런처다.
 
-## 사용법
+- 첫 실행에서 필요한 런타임과 패키지를 자동 설치한다.
+- 재실행 시에는 웜 스타트로 훨씬 빠르게 연다.
+- Ollama와 모델을 자동 준비해 로컬 AI 분석을 바로 쓸 수 있게 한다.
+- 런처 업데이트와 `dartlab` 본체 업데이트를 각각 분리해서 확인하고, 둘 다 사용자 승인 후에만 적용한다.
+- 성공 실행 후 바탕화면과 시작 메뉴 바로가기를 자동 생성하고, 이후 누락되면 자동 복구한다.
 
-1. `DartLab.exe` 더블클릭
-2. 첫 실행: 환경 자동 설치 (2~5분)
-3. 이후 실행: 5초 내 브라우저 오픈
+## 빠른 시작
 
-## 자동 설치 항목
+1. [GitHub Releases](https://github.com/eddmpython/dartlab-desktop/releases)에서 `DartLab.exe`를 다운로드한다.
+2. `DartLab.exe`를 실행한다.
+3. 첫 실행에서는 자동 설치가 진행된다. 네트워크와 디스크 상태에 따라 몇 분 정도 걸릴 수 있다.
+4. 준비가 끝나면 `http://127.0.0.1:8400` 기반 UI로 자동 전환된다.
 
-| 항목 | 설명 |
-|------|------|
-| [uv](https://docs.astral.sh/uv/) | Python 패키지 매니저 |
-| Python 3.12+ | uv가 자동 설치 |
-| [DartLab](https://github.com/eddmpython/dartlab) | AI 기업분석 라이브러리 |
-| [Ollama](https://ollama.com) | 로컬 LLM 실행 엔진 |
-| qwen3 | 한국어 재무분석 추천 모델 |
+## 첫 실행에서 자동 구성되는 것
 
-모든 항목은 `%LOCALAPPDATA%\DartLab\`에 격리 설치된다. 시스템 환경을 오염시키지 않는다.
+| 구성 요소 | 역할 |
+|---|---|
+| [uv](https://docs.astral.sh/uv/) | Python 환경과 패키지 설치 |
+| Python 3.12 | `uv venv`로 격리 환경 생성 |
+| [`dartlab[ai,llm]`](https://github.com/eddmpython/dartlab) | 분석 본체와 AI 기능 |
+| [Ollama](https://ollama.com) | 로컬 LLM 런타임 |
+| `qwen3:4b` | 기본 한국어 분석 모델 |
+| WebView2 데이터 | 런처 UI와 내장 브라우저 상태 |
+
+모든 데이터는 `%LOCALAPPDATA%\DartLab\` 아래에 격리된다. 시스템 Python이나 전역 패키지에 의존하지 않는다.
+
+## 업데이트 방식
+
+### 런처 업데이트
+
+- 실행 초기에 GitHub Releases 최신 버전을 확인한다.
+- 새 버전이 있으면 사용자 응답을 받을 때까지 시작을 멈춘다.
+- `업데이트`를 누르면 새 `DartLab.exe`를 받아 교체하고, 새 exe를 다시 실행한 뒤 현재 프로세스는 종료한다.
+- 이전 업데이트의 `.exe.old` 또는 `.exe.new` 잔여 파일은 시작 시 정리한다.
+
+### DartLab 본체 업데이트
+
+- `updater::check_update()`가 `dartlab` 최신 확인의 단일 기준이다.
+- cold start에서는 `dartlab` 설치/검증 직후, warm start에서는 실행 준비 검증 직후 같은 최신 확인 게이트를 지난다.
+- 로컬 버전과 PyPI 최신 버전을 비교하고, 새 버전이 있으면 사용자 응답을 받을 때까지 다음 단계로 넘어가지 않는다.
+- 로그에는 `설치/검증 완료 -> 로컬 버전 -> PyPI 최신 버전 -> 업데이트 필요 여부`가 남는다.
+
+## 바로가기
+
+- 첫 성공 실행 후 아래 두 위치에 `DartLab.lnk`를 생성한다.
+- 이후에도 성공 실행마다 누락된 바로가기를 자동 복구한다.
+- 바로가기는 per-user 범위만 다룬다. 시스템 전체 설치나 인스톨러 등록은 아직 포함하지 않는다.
+
+| 위치 | 경로 |
+|---|---|
+| Desktop | `%USERPROFILE%\Desktop\DartLab.lnk` |
+| Start Menu | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\DartLab.lnk` |
+
+## 동작 개요
+
+```text
+DartLab.exe
+├─ logger        런처 로그 파일 생성/정리
+├─ selfUpdate    런처 최신 버전 확인 및 exe 교체
+├─ setup         uv / Python / dartlab 설치
+├─ updater       PyPI 최신 버전 비교 및 본체 업데이트
+├─ ollama        Ollama 설치, 구동, 모델 확인
+├─ runner        dartlab ai 서버 실행 및 대기
+├─ shortcuts     Desktop / Start Menu 바로가기 생성
+├─ state         웜 스타트 상태 기록
+└─ wry/tao       설치 UI + WebView2 창 관리
+```
+
+상세 기술 설명은 [TECH_SPEC.md](TECH_SPEC.md)에서 확인할 수 있다.
 
 ## 시스템 요구사항
 
 | 항목 | 최소 | 권장 |
-|------|------|------|
+|---|---|---|
 | OS | Windows 10 | Windows 11 |
 | RAM | 8GB | 16GB |
-| 디스크 | 5GB | 10GB |
-| GPU | 없음 (CPU 모드) | NVIDIA GPU (CUDA) |
-| 런타임 | WebView2 (Windows 10/11 기본 내장) | — |
-
-## 업데이트
-
-실행할 때마다 백그라운드에서 새 버전을 확인한다.
-
-- **DartLab 패키지** — PyPI에서 최신 버전 체크. 새 버전이 있으면 배너로 알림.
-- **런처 자체** — GitHub Releases에서 최신 exe 체크. 새 버전이 있으면 배너로 알림.
-
-두 경우 모두 사용자가 "업데이트" 버튼을 눌러야 적용된다. 강제 업데이트 없음.
-
-## 아키텍처
-
-```
-DartLab.exe (Rust, ~2.7MB)
-├── main          WebView2 윈도우 + IPC + 이벤트 루프
-├── setup         uv + Python + dartlab 자동 설치
-├── runner        dartlab ai 서버 subprocess 관리
-├── updater       PyPI 버전 체크 + 패키지 업데이트
-├── selfUpdate    런처 exe 자체 업데이트
-├── ollama        GPU 감지 + Ollama 설치 + 모델 관리
-├── state         웜/콜드 스타트 판별
-├── logger        파일 로깅 + 7일 자동 정리
-└── paths         경로 관리
-```
-
-상세 기술 스펙은 [TECH_SPEC.md](TECH_SPEC.md) 참조.
-
-## 기술 스택
-
-| 항목 | 기술 |
-|------|------|
-| 언어 | Rust (edition 2024) |
-| 윈도우 | tao + wry (WebView2) |
-| HTTP | ureq (동기, tokio 불필요) |
-| ZIP | zip crate (네이티브) |
-| Win32 | windows-sys (Named Mutex) |
-
-의존성 8개. async 런타임 없음. 바이너리 크기 최적화 (strip + LTO).
+| 디스크 | 5GB 여유 | 10GB 이상 |
+| GPU | 없음, CPU 모드 가능 | NVIDIA GPU |
+| WebView2 | Windows 기본 내장 또는 설치 필요 | 기본 내장 |
 
 ## 트러블슈팅
 
-**로그 확인**
+### 로그 위치
 
-```
+```text
 %LOCALAPPDATA%\DartLab\logs\
 ```
 
-7일간 보관, 이후 자동 삭제.
+- 런처 로그와 서버 로그를 남긴다.
+- 에러 화면의 `로그 열기` 버튼으로 바로 탐색기를 열 수 있다.
 
-**포트 충돌 (8400)**
+### 포트 충돌
 
-DartLab이 이미 실행 중이면 Named Mutex가 중복 실행을 차단한다. 다른 프로세스가 포트를 점유 중이면 해당 프로세스를 종료 후 재실행.
+- 기본 포트는 `8400`이다.
+- 이미 다른 프로세스가 사용 중이면 실행을 막고 명확한 에러를 보여준다.
+- 중복 실행은 Named Mutex로 차단한다.
 
-**완전 재설치**
+### 완전 초기화
 
-`%LOCALAPPDATA%\DartLab\` 폴더를 삭제하면 다음 실행 시 처음부터 다시 설치한다.
+- 에러 화면의 `초기화 후 재시도` 버튼을 사용할 수 있다.
+- 수동으로는 `%LOCALAPPDATA%\DartLab\`를 삭제하면 다음 실행에서 처음부터 다시 설치한다.
 
-## 빌드
+### HTTPS 다운로드 인증서 문제
+
+- 일부 기업/프록시 환경에서는 Rust HTTP TLS 검증이 실패할 수 있다.
+- 이런 경우를 대비해 HTTPS 요청/다운로드는 PowerShell fallback을 사용해 Windows 인증서 저장소 경로로 한 번 더 시도한다.
+
+## 개발
 
 ```bash
 cargo build --release
 ```
 
-**배포** — tag push 시 GitHub Actions가 자동 빌드 + Releases 업로드:
+로컬 실행:
 
 ```bash
-git tag vX.Y.Z && git push origin vX.Y.Z
+cargo run --release
 ```
+
+## 배포
+
+태그를 푸시하면 GitHub Actions가 Windows 릴리즈 빌드를 만들고 `DartLab.exe`를 Release에 업로드한다.
+
+```bash
+git tag vX.Y.Z
+git push origin main vX.Y.Z
+```
+
+현재 워크플로우:
+
+- `cargo build --release`
+- `dartlab-desktop.exe`를 `DartLab.exe`로 리네이밍
+- build provenance attestation 생성
+- GitHub Release 업로드
 
 ## 관련 프로젝트
 
 | 프로젝트 | 설명 |
-|---------|------|
-| [dartlab](https://github.com/eddmpython/dartlab) | DartLab 본체 (Python, PyPI) |
-| [dartlab landing](https://github.com/eddmpython/dartlab/tree/main/landing) | 랜딩 페이지 (SvelteKit, GitHub Pages) |
+|---|---|
+| [dartlab](https://github.com/eddmpython/dartlab) | Python 본체 |
+| [dartlab landing](https://github.com/eddmpython/dartlab/tree/main/landing) | 랜딩 페이지 |
 
 ## 라이선스
 

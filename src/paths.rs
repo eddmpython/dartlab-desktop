@@ -29,3 +29,18 @@ pub fn dartlab_ui_dir(app_dir: &std::path::Path) -> PathBuf {
         .join("dartlab")
         .join("ui")
 }
+
+pub fn desktop_shortcut() -> Option<PathBuf> {
+    dirs::desktop_dir().map(|dir| dir.join("DartLab.lnk"))
+}
+
+pub fn start_menu_shortcut() -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|appdata| {
+        PathBuf::from(appdata)
+            .join("Microsoft")
+            .join("Windows")
+            .join("Start Menu")
+            .join("Programs")
+            .join("DartLab.lnk")
+    })
+}

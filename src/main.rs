@@ -8,6 +8,7 @@ mod runner;
 #[allow(non_snake_case)]
 mod selfUpdate;
 mod setup;
+mod shortcuts;
 mod state;
 mod updater;
 
@@ -474,6 +475,7 @@ fn run_setup(
     if warm {
         let gpu = ollama::gpu_label();
 
+        logger::log("DartLab 웜 스타트 검증 완료 — 최신 버전 확인");
         progress(4, "DartLab 업데이트 확인 중...");
         if let Err(e) = maybe_handle_dartlab_update(&progress, &js, &update_state, &app_dir, 4, 5) {
             fail(&e);
@@ -514,11 +516,7 @@ fn run_setup(
         progress(70, "서버 응답 대기 중...");
         match runner::wait_for_server(30) {
             Ok(()) => {
-                progress(100, "준비 완료!");
-                state::mark_success(&app_dir);
-                std::thread::sleep(std::time::Duration::from_millis(200));
-                let _ = tx.send(AppEvent::Ready);
-                let _ = proxy.send_event(AppEvent::Ready);
+                finish_startup(&app_dir, &progress, &tx, &proxy);
             }
             Err(e) => fail(&e),
         }
@@ -537,6 +535,7 @@ fn run_setup(
         return;
     }
 
+    logger::log("DartLab 설치 완료 후 최신 버전 확인");
     progress(40, "업데이트 확인 중...");
     if let Err(e) = maybe_handle_dartlab_update(&progress, &js, &update_state, &app_dir, 40, 45) {
         fail(&e);
@@ -580,14 +579,29 @@ fn run_setup(
     progress(90, "서버 응답 대기 중...");
     match runner::wait_for_server(60) {
         Ok(()) => {
-            progress(100, "준비 완료!");
-            state::mark_success(&app_dir);
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            let _ = tx.send(AppEvent::Ready);
-            let _ = proxy.send_event(AppEvent::Ready);
+            finish_startup(&app_dir, &progress, &tx, &proxy);
         }
         Err(e) => fail(&e),
     }
+}
+
+fn finish_startup(
+    app_dir: &std::path::Path,
+    progress: &impl Fn(u32, &str),
+    tx: &mpsc::Sender<AppEvent>,
+    proxy: &tao::event_loop::EventLoopProxy<AppEvent>,
+) {
+    progress(100, "준비 완료!");
+    state::mark_success(app_dir);
+    logger::log("DartLab 실행 성공 기록 저장");
+
+    if let Err(e) = shortcuts::ensure_shortcuts() {
+        logger::log(&format!("바로가기 동기화 실패: {e}"));
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let _ = tx.send(AppEvent::Ready);
+    let _ = proxy.send_event(AppEvent::Ready);
 }
 
 fn resolve_update_decision(
@@ -665,6 +679,8 @@ fn maybe_handle_dartlab_update(
     check_progress: u32,
     apply_progress: u32,
 ) -> Result<(), String> {
+    logger::log("DartLab 최신 버전 확인 시작");
+
     match updater::check_update(app_dir) {
         Ok(Some(version)) => {
             progress(
