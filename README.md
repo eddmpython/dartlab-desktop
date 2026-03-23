@@ -1,6 +1,16 @@
 # DartLab Desktop
 
-로컬 AI 기업분석을 Windows에서 바로 실행하는 1파일 런처.
+<p align="center">
+  <img src="https://eddmpython.github.io/dartlab/avatar-analyze.png" alt="DartLab Avatar" width="120" />
+</p>
+
+<p align="center">
+  로컬 AI 기업분석을 Windows에서 바로 실행하는 1파일 런처
+</p>
+
+<p align="center">
+  <strong>DartLab.exe</strong> 하나로 Python, <code>dartlab</code>, Ollama, 모델, Web UI 준비까지 자동으로 끝낸다.
+</p>
 
 [![Release](https://img.shields.io/github/v/release/eddmpython/dartlab-desktop?display_name=tag)](https://github.com/eddmpython/dartlab-desktop/releases)
 [![License](https://img.shields.io/github/license/eddmpython/dartlab-desktop)](LICENSE)
@@ -8,7 +18,13 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)](https://github.com/eddmpython/dartlab-desktop/releases)
 [![Runtime](https://img.shields.io/badge/runtime-Rust-000000?logo=rust)](https://www.rust-lang.org/)
 
-[Releases](https://github.com/eddmpython/dartlab-desktop/releases) · [DartLab 본체](https://github.com/eddmpython/dartlab) · [문서](https://eddmpython.github.io/dartlab/) · [한국어 문서](https://github.com/eddmpython/dartlab/blob/main/README_KR.md) · [이슈](https://github.com/eddmpython/dartlab-desktop/issues)
+<p align="center">
+  <a href="https://github.com/eddmpython/dartlab-desktop/releases">Releases</a> ·
+  <a href="https://github.com/eddmpython/dartlab">DartLab 본체</a> ·
+  <a href="https://eddmpython.github.io/dartlab/">문서</a> ·
+  <a href="https://github.com/eddmpython/dartlab/blob/main/README_KR.md">한국어 문서</a> ·
+  <a href="https://github.com/eddmpython/dartlab-desktop/issues">이슈</a>
+</p>
 
 `DartLab.exe` 하나만 실행하면 Python, `dartlab`, Ollama, 모델, Web UI 준비까지 자동으로 끝낸다. 비개발자 기준으로는 "다운로드 후 더블클릭", 개발자 기준으로는 "Windows용 self-contained launcher"가 목표다.
 
