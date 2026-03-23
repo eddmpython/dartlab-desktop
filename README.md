@@ -1,22 +1,30 @@
-# DartLab Desktop
-
 <p align="center">
   <img src="https://eddmpython.github.io/dartlab/avatar-analyze.png" alt="DartLab Avatar" width="120" />
 </p>
+
+<h3 align="center">DartLab Desktop</h3>
 
 <p align="center">
   로컬 AI 기업분석을 Windows에서 바로 실행하는 1파일 런처
 </p>
 
 <p align="center">
-  <strong>DartLab.exe</strong> 하나로 Python, <code>dartlab</code>, Ollama, 모델, Web UI 준비까지 자동으로 끝낸다.
+  <strong>DartLab.exe</strong> 하나로 Python, <code>dartlab</code>, Web UI를 준비하고, Ollama와 모델은 필요할 때만 설치한다.
 </p>
 
-[![Release](https://img.shields.io/github/v/release/eddmpython/dartlab-desktop?display_name=tag)](https://github.com/eddmpython/dartlab-desktop/releases)
-[![License](https://img.shields.io/github/license/eddmpython/dartlab-desktop)](LICENSE)
-[![Release Workflow](https://img.shields.io/github/actions/workflow/status/eddmpython/dartlab-desktop/release.yml?label=release)](https://github.com/eddmpython/dartlab-desktop/actions/workflows/release.yml)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)](https://github.com/eddmpython/dartlab-desktop/releases)
-[![Runtime](https://img.shields.io/badge/runtime-Rust-000000?logo=rust)](https://www.rust-lang.org/)
+<p align="center">
+  <a href="https://github.com/eddmpython/dartlab-desktop/releases"><img src="https://img.shields.io/github/v/release/eddmpython/dartlab-desktop?display_name=tag" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/eddmpython/dartlab-desktop" alt="License" /></a>
+  <a href="https://github.com/eddmpython/dartlab-desktop/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/eddmpython/dartlab-desktop/release.yml?label=release" alt="Release Workflow" /></a>
+  <a href="https://github.com/eddmpython/dartlab-desktop/releases"><img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6" alt="Platform" /></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/runtime-Rust-000000?logo=rust" alt="Runtime" /></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/local%20AI-optional-F97316" alt="Local AI Optional" />
+  <img src="https://img.shields.io/badge/update-self--updating-111827" alt="Self Updating" />
+  <img src="https://img.shields.io/badge/package-single%20exe-2563EB" alt="Single EXE" />
+</p>
 
 <p align="center">
   <a href="https://github.com/eddmpython/dartlab-desktop/releases">Releases</a> ·
@@ -26,7 +34,7 @@
   <a href="https://github.com/eddmpython/dartlab-desktop/issues">이슈</a>
 </p>
 
-`DartLab.exe` 하나만 실행하면 Python, `dartlab`, Ollama, 모델, Web UI 준비까지 자동으로 끝낸다. 비개발자 기준으로는 "다운로드 후 더블클릭", 개발자 기준으로는 "Windows용 self-contained launcher"가 목표다.
+`DartLab.exe` 하나만 실행하면 Python, `dartlab`, Web UI 준비까지 자동으로 끝낸다. 로컬 AI가 필요하면 Ollama 설치를 사용자에게 먼저 묻고, 원하지 않으면 건너뛴 채로 바로 시작할 수 있다. 비개발자 기준으로는 "다운로드 후 더블클릭", 개발자 기준으로는 "Windows용 self-contained launcher"가 목표다.
 
 ## 무엇을 해결하나
 
@@ -34,7 +42,7 @@
 
 - 첫 실행에서 필요한 런타임과 패키지를 자동 설치한다.
 - 재실행 시에는 웜 스타트로 훨씬 빠르게 연다.
-- Ollama와 모델을 자동 준비해 로컬 AI 분석을 바로 쓸 수 있게 한다.
+- Ollama와 모델은 사용자 승인 후에만 설치하고, 원하지 않으면 로컬 AI 없이 계속 사용할 수 있다.
 - 런처 업데이트와 `dartlab` 본체 업데이트를 각각 분리해서 확인하고, 둘 다 사용자 승인 후에만 적용한다.
 - 성공 실행 후 바탕화면과 시작 메뉴 바로가기를 자동 생성하고, 이후 누락되면 자동 복구한다.
 
@@ -43,7 +51,8 @@
 1. [GitHub Releases](https://github.com/eddmpython/dartlab-desktop/releases)에서 `DartLab.exe`를 다운로드한다.
 2. `DartLab.exe`를 실행한다.
 3. 첫 실행에서는 자동 설치가 진행된다. 네트워크와 디스크 상태에 따라 몇 분 정도 걸릴 수 있다.
-4. 준비가 끝나면 `http://127.0.0.1:8400` 기반 UI로 자동 전환된다.
+4. 로컬 AI를 쓰고 싶다면 Ollama 설치 확인 창에서 `예`를 누른다. `아니오`를 누르면 Ollama 없이 계속 시작한다.
+5. 준비가 끝나면 `http://127.0.0.1:8400` 기반 UI로 자동 전환된다.
 
 ## 첫 실행에서 자동 구성되는 것
 
@@ -52,8 +61,8 @@
 | [uv](https://docs.astral.sh/uv/) | Python 환경과 패키지 설치 |
 | Python 3.12 | `uv venv`로 격리 환경 생성 |
 | [`dartlab[ai,llm]`](https://github.com/eddmpython/dartlab) | 분석 본체와 AI 기능 |
-| [Ollama](https://ollama.com) | 로컬 LLM 런타임 |
-| `qwen3:4b` | 기본 한국어 분석 모델 |
+| [Ollama](https://ollama.com) | 로컬 LLM 런타임, 사용자 승인 시에만 설치 |
+| `qwen3:4b` | 기본 한국어 분석 모델, Ollama 사용 시에만 다운로드 |
 | WebView2 데이터 | 런처 UI와 내장 브라우저 상태 |
 
 모든 데이터는 `%LOCALAPPDATA%\DartLab\` 아래에 격리된다. 시스템 Python이나 전역 패키지에 의존하지 않는다.
@@ -73,6 +82,12 @@
 - cold start에서는 `dartlab` 설치/검증 직후, warm start에서는 실행 준비 검증 직후 같은 최신 확인 게이트를 지난다.
 - 로컬 버전과 PyPI 최신 버전을 비교하고, 새 버전이 있으면 사용자 응답을 받을 때까지 다음 단계로 넘어가지 않는다.
 - 로그에는 `설치/검증 완료 -> 로컬 버전 -> PyPI 최신 버전 -> 업데이트 필요 여부`가 남는다.
+
+## Ollama 사용 방식
+
+- Ollama는 필수가 아니다. 설치 전 확인 창이 먼저 뜬다.
+- `아니오`를 누르면 `dartlab` 서버는 Ollama 환경 변수 없이 시작되고, 앱은 로컬 AI 없이 계속 열린다.
+- 런처 하단의 Ollama 버튼으로 "이번부터 설치 건너뛰기", "다시 사용", "설치된 Ollama 제거"를 처리할 수 있다.
 
 ## 바로가기
 

@@ -71,7 +71,9 @@ pub fn gpu_label() -> String {
 fn resolve_ollama_bin() -> Option<String> {
     if let Ok(lock) = OLLAMA_BIN.lock() {
         if let Some(ref bin) = *lock {
-            return Some(bin.clone());
+            if is_valid_cached_bin(bin) {
+                return Some(bin.clone());
+            }
         }
     }
 
@@ -113,6 +115,19 @@ fn resolve_ollama_bin() -> Option<String> {
     None
 }
 
+fn is_valid_cached_bin(bin: &str) -> bool {
+    if bin == "ollama" {
+        return Command::new("ollama")
+            .arg("--version")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+    }
+
+    std::path::Path::new(bin).exists()
+}
+
 fn is_tcp_reachable() -> bool {
     std::net::TcpStream::connect_timeout(
         &"127.0.0.1:11434".parse().unwrap(),
@@ -152,6 +167,10 @@ fn fetch_model_names() -> Result<Vec<String>, String> {
 
 fn has_model(model_name: &str) -> Result<bool, String> {
     Ok(fetch_model_names()?.iter().any(|name| name == model_name))
+}
+
+pub fn is_installed() -> bool {
+    resolve_ollama_bin().is_some()
 }
 
 pub fn ensure_ollama(app_dir: &Path) -> Result<(), String> {
@@ -288,4 +307,70 @@ pub fn stop_ollama() {
         *lock = None;
     }
     SPAWNED_BY_US.store(false, Ordering::SeqCst);
+}
+
+pub fn uninstall_ollama() -> Result<(), String> {
+    stop_ollama();
+
+    logger::log("Ollama 제거 시작");
+
+    let cleanup_startup = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NoLogo",
+            "-Command",
+            "$startup = [Environment]::GetFolderPath('Startup'); $link = Join-Path $startup 'Ollama.lnk'; if (Test-Path $link) { Remove-Item $link -Force }",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    if let Ok(output) = cleanup_startup {
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            logger::log(&format!("Ollama 시작프로그램 정리 stderr: {stderr}"));
+        }
+    }
+
+    let script = r#"
+      $paths = @(
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+      )
+      $entry = Get-ItemProperty $paths -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -eq 'Ollama' } |
+        Select-Object -First 1
+      if (-not $entry) { exit 2 }
+      $cmd = if ($entry.QuietUninstallString) { $entry.QuietUninstallString } else { $entry.UninstallString }
+      if (-not $cmd) { exit 3 }
+      & cmd.exe /c $cmd
+      exit $LASTEXITCODE
+    "#;
+
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-NoLogo", "-Command", script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("Ollama 제거 실행 실패: {e}"))?;
+
+    if !output.status.success() {
+        let code = output.status.code().unwrap_or(-1);
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        logger::log(&format!("Ollama 제거 stdout: {stdout}"));
+        logger::log(&format!("Ollama 제거 stderr: {stderr}"));
+        let detail = if !stderr.is_empty() { stderr } else { stdout };
+        return Err(format!("Ollama 제거 실패 (code: {code}) {detail}"));
+    }
+
+    if let Ok(mut lock) = OLLAMA_BIN.lock() {
+        *lock = None;
+    }
+
+    if is_installed() {
+        return Err("Ollama 제거 후에도 실행 파일이 남아 있습니다".into());
+    }
+
+    logger::log("Ollama 제거 완료");
+    Ok(())
 }

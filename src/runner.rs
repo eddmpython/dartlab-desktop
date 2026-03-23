@@ -25,7 +25,7 @@ fn verify_dartlab_server() -> bool {
         .is_ok()
 }
 
-pub fn start_server(app_dir: &Path) -> Result<PathBuf, String> {
+pub fn start_server(app_dir: &Path, use_ollama: bool) -> Result<PathBuf, String> {
     if is_port_in_use() {
         if let Ok(mut lock) = SERVER_LOG.lock() {
             *lock = None;
@@ -55,14 +55,20 @@ pub fn start_server(app_dir: &Path) -> Result<PathBuf, String> {
         .try_clone()
         .map_err(|e| format!("로그 파일 복제 실패: {e}"))?;
 
-    let child = Command::new(&dartlab)
+    let mut command = Command::new(&dartlab);
+    command
         .args(["ai", "--port", &PORT.to_string(), "--no-browser"])
         .env("DARTLAB_NO_BROWSER", "1")
-        .env("DARTLAB_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
         .current_dir(app_dir)
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(log_file_err))
-        .creation_flags(CREATE_NO_WINDOW)
+        .creation_flags(CREATE_NO_WINDOW);
+
+    if use_ollama {
+        command.env("DARTLAB_LLM_BASE_URL", "http://127.0.0.1:11434/v1");
+    }
+
+    let child = command
         .spawn()
         .map_err(|e| format!("dartlab 실행 실패: {e}"))?;
 

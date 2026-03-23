@@ -104,10 +104,49 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     border-radius: 2px;
     transition: width 0.4s ease;
   }
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+    min-height: 22px;
+  }
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid rgba(148,163,184,0.25);
+    border-top-color: #fb923c;
+    animation: spin 0.8s linear infinite;
+    visibility: hidden;
+    flex: 0 0 auto;
+  }
   #status {
     font-size: 13px;
     color: #64748b;
     min-height: 20px;
+  }
+  .maintenance-btns {
+    display: flex;
+    margin-top: 18px;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .maintenance-btns button {
+    border: 1px solid #334155;
+    background: transparent;
+    color: #94a3b8;
+    border-radius: 999px;
+    padding: 7px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+  }
+  .maintenance-btns button:hover { background: rgba(148,163,184,0.08); }
+  .maintenance-btns button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
   #error {
     color: #ea4647;
@@ -179,6 +218,9 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     background: transparent;
     color: #64748b;
   }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
   @keyframes fadeIn { to { opacity: 1; } }
 </style>
 </head>
@@ -187,12 +229,18 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
   <h1>DartLab</h1>
   <p class="sub">AI 기업분석 준비 중</p>
   <div class="bar-wrap"><div class="bar" id="bar"></div></div>
-  <div id="status"></div>
+  <div class="status-row">
+    <div class="spinner" id="spinner"></div>
+    <div id="status"></div>
+  </div>
   <div id="error"></div>
   <div class="action-btns" id="action-btns">
     <button onclick="window.ipc.postMessage('retry')">다시 시도</button>
     <button class="btn-secondary" onclick="window.ipc.postMessage('open-log')">로그 열기</button>
     <button class="btn-secondary" onclick="window.ipc.postMessage('reset')">초기화 후 재시도</button>
+  </div>
+  <div class="maintenance-btns">
+    <button id="ollama-toggle-btn" onclick="window.ipc.postMessage('ollama:toggle')">Ollama 설정</button>
   </div>
   <div id="update-banner">
     <div>
@@ -203,11 +251,30 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     <button class="btn-skip" id="update-skip-btn">다음에</button>
   </div>
   <script>
-    function setProgress(pct, label) {
-      document.getElementById('bar').style.width = pct + '%';
+    var promptActive = false;
+    var busy = false;
+    function syncUiState() {
+      var disabled = busy || promptActive;
+      document.getElementById('ollama-toggle-btn').disabled = disabled;
+    }
+    function setBusy(nextBusy) {
+      busy = !!nextBusy;
+      document.getElementById('spinner').style.visibility = busy ? 'visible' : 'hidden';
+      syncUiState();
+    }
+    function setOllamaButton(label) {
+      document.getElementById('ollama-toggle-btn').textContent = label;
+    }
+    function setStatusLabel(label) {
       document.getElementById('status').textContent = label;
     }
+    function setProgress(pct, label) {
+      setBusy(true);
+      document.getElementById('bar').style.width = pct + '%';
+      setStatusLabel(label);
+    }
     function setError(msg) {
+      setBusy(false);
       var el = document.getElementById('error');
       el.textContent = msg;
       el.style.display = 'block';
@@ -219,6 +286,9 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
       document.getElementById('action-btns').style.display = 'none';
     }
     function showUpdate(type, ver) {
+      setBusy(false);
+      promptActive = true;
+      syncUiState();
       var label = type === 'launcher' ? '런처' : 'DartLab';
       document.getElementById('update-label').textContent = label;
       document.getElementById('update-ver').textContent = 'v' + ver;
@@ -231,6 +301,8 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
       document.getElementById('update-banner').style.display = 'flex';
     }
     function hideUpdate() {
+      promptActive = false;
+      syncUiState();
       document.getElementById('update-banner').style.display = 'none';
     }
     window.ipc.postMessage('ready');
@@ -318,9 +390,86 @@ fn main() {
                         if venv.exists() {
                             std::fs::remove_dir_all(&venv).ok();
                         }
-                        logger::log("사용자 초기화 — venv + state 삭제 후 콜드 스타트");
+                        logger::log("사용자 초기화 — venv 삭제 + 웜 스타트 상태 초기화 후 콜드 스타트");
                         let (tx, _rx) = mpsc::channel::<AppEvent>();
                         run_setup(tx, p, us);
+                    });
+                }
+                "ollama:toggle" => {
+                    let p = ipc_proxy.clone();
+                    std::thread::spawn(move || {
+                        let app_dir = paths::app_dir();
+                        let enabled = state::ollama_enabled(&app_dir);
+                        let installed = ollama::is_installed();
+
+                        if !enabled {
+                            if !confirm_native(
+                                "Ollama 사용",
+                                "로컬 AI용 Ollama 사용을 다시 켭니다.\n\n다음 재시도 또는 다음 실행부터 설치/기동을 진행합니다.\n\n계속할까요?",
+                            ) {
+                                return;
+                            }
+
+                            state::set_ollama_enabled(&app_dir, true);
+                            let _ = p.send_event(AppEvent::Log(format!(
+                                "clearError();setOllamaButton('{}');setStatusLabel('Ollama를 다시 사용할 수 있도록 설정했습니다. 다시 시도하면 설치를 진행합니다.')",
+                                ollama_button_label(&app_dir)
+                            )));
+                            logger::log("사용자가 Ollama 사용을 다시 활성화");
+                            return;
+                        }
+
+                        if !installed {
+                            if !confirm_native(
+                                "Ollama 사용 안 함",
+                                "다음 재시도 또는 다음 실행부터 Ollama 설치를 건너뜁니다.\n\n계속할까요?",
+                            ) {
+                                return;
+                            }
+
+                            state::set_ollama_enabled(&app_dir, false);
+                            let _ = p.send_event(AppEvent::Log(format!(
+                                "clearError();setOllamaButton('{}');setStatusLabel('Ollama 설치를 건너뛰도록 설정했습니다. 로컬 AI 없이 계속 사용할 수 있습니다.')",
+                                ollama_button_label(&app_dir)
+                            )));
+                            logger::log("사용자가 Ollama 설치를 비활성화");
+                            return;
+                        }
+
+                        if !confirm_native(
+                            "Ollama 제거",
+                            "설치된 Ollama와 실행 중인 프로세스를 제거하고 로컬 AI를 끕니다.\n\n계속할까요?",
+                        ) {
+                            return;
+                        }
+
+                        let _ = p.send_event(AppEvent::Log("clearError()".to_string()));
+                        let _ = p.send_event(AppEvent::Log(
+                            "setProgress(0,'Ollama 제거 중...')".to_string(),
+                        ));
+
+                        runner::stop_server();
+                        ollama::stop_ollama();
+
+                        match ollama::uninstall_ollama() {
+                            Ok(()) => {
+                                state::set_ollama_enabled(&app_dir, false);
+                                let _ = p.send_event(AppEvent::Log(format!(
+                                    "clearError();setBusy(false);setOllamaButton('{}');setStatusLabel('Ollama 제거 완료. 이후 실행은 로컬 AI 없이 진행됩니다.')",
+                                    ollama_button_label(&app_dir)
+                                )));
+                                logger::log("사용자가 Ollama 제거 및 비활성화 완료");
+                            }
+                            Err(e) => {
+                                let escaped = e
+                                    .replace('\\', "\\\\")
+                                    .replace('\'', "\\'")
+                                    .replace('\n', "\\n");
+                                let _ = p.send_event(AppEvent::Log(format!(
+                                    "setError('Ollama 제거 실패: {escaped}')"
+                                )));
+                            }
+                        }
                     });
                 }
                 "update:dartlab:yes" => {
@@ -457,6 +606,7 @@ fn run_setup(
     if !app_dir.exists() {
         std::fs::create_dir_all(&app_dir).ok();
     }
+    sync_ollama_button(&js, &app_dir);
 
     progress(2, "런처 업데이트 확인 중...");
     if let Err(e) = maybe_handle_launcher_update(&js, &update_state) {
@@ -474,6 +624,7 @@ fn run_setup(
 
     if warm {
         let gpu = ollama::gpu_label();
+        let use_ollama;
 
         logger::log("DartLab 웜 스타트 검증 완료 — 최신 버전 확인");
         progress(4, "DartLab 업데이트 확인 중...");
@@ -482,20 +633,31 @@ fn run_setup(
             return;
         }
 
-        progress(5, &format!("Ollama 확인 중... [{gpu}]"));
-        if let Err(e) = ollama::ensure_ollama(&app_dir) {
-            fail(&format!("Ollama 설치 실패: {e}"));
-            return;
+        progress(5, &format!("Ollama 설정 확인 중... [{gpu}]"));
+        match ensure_ollama_with_prompt(&app_dir, &gpu) {
+            Ok(next_use_ollama) => {
+                use_ollama = next_use_ollama;
+                sync_ollama_button(&js, &app_dir);
+            }
+            Err(e) => {
+                fail(&format!("Ollama 설치 실패: {e}"));
+                return;
+            }
         }
-        progress(15, "Ollama 시작 중...");
-        if let Err(e) = ollama::ensure_serve() {
-            fail(&format!("Ollama 시작 실패: {e}"));
-            return;
-        }
-        progress(25, "LLM 모델 확인 중...");
-        if let Err(e) = ollama::ensure_model() {
-            fail(&format!("모델 다운로드 실패: {e}"));
-            return;
+
+        if use_ollama {
+            progress(15, "Ollama 시작 중...");
+            if let Err(e) = ollama::ensure_serve() {
+                fail(&format!("Ollama 시작 실패: {e}"));
+                return;
+            }
+            progress(25, "LLM 모델 확인 중...");
+            if let Err(e) = ollama::ensure_model() {
+                fail(&format!("모델 다운로드 실패: {e}"));
+                return;
+            }
+        } else {
+            progress(25, "Ollama 없이 계속 진행 중...");
         }
 
         progress(40, "UI 빌드 확인 중...");
@@ -505,7 +667,7 @@ fn run_setup(
         }
 
         progress(50, "서버 시작 중...");
-        match runner::start_server(&app_dir) {
+        match runner::start_server(&app_dir, use_ollama) {
             Ok(_) => {}
             Err(e) => {
                 fail(&format!("서버 시작 실패: {e}"));
@@ -543,22 +705,33 @@ fn run_setup(
     }
 
     let gpu = ollama::gpu_label();
-    progress(55, &format!("Ollama 설치 중... [{gpu}]"));
-    if let Err(e) = ollama::ensure_ollama(&app_dir) {
-        fail(&format!("Ollama 설치 실패: {e}"));
-        return;
+    let use_ollama;
+    progress(55, &format!("Ollama 설정 확인 중... [{gpu}]"));
+    match ensure_ollama_with_prompt(&app_dir, &gpu) {
+        Ok(next_use_ollama) => {
+            use_ollama = next_use_ollama;
+            sync_ollama_button(&js, &app_dir);
+        }
+        Err(e) => {
+            fail(&format!("Ollama 설치 실패: {e}"));
+            return;
+        }
     }
 
-    progress(65, "Ollama 시작 중...");
-    if let Err(e) = ollama::ensure_serve() {
-        fail(&format!("Ollama 시작 실패: {e}"));
-        return;
-    }
+    if use_ollama {
+        progress(65, "Ollama 시작 중...");
+        if let Err(e) = ollama::ensure_serve() {
+            fail(&format!("Ollama 시작 실패: {e}"));
+            return;
+        }
 
-    progress(70, "LLM 모델 다운로드 중...");
-    if let Err(e) = ollama::ensure_model() {
-        fail(&format!("모델 다운로드 실패: {e}"));
-        return;
+        progress(70, "LLM 모델 다운로드 중...");
+        if let Err(e) = ollama::ensure_model() {
+            fail(&format!("모델 다운로드 실패: {e}"));
+            return;
+        }
+    } else {
+        progress(70, "Ollama 없이 계속 진행 중...");
     }
 
     progress(80, "UI 빌드 확인 중...");
@@ -568,7 +741,7 @@ fn run_setup(
     }
 
     progress(85, "서버 시작 중...");
-    match runner::start_server(&app_dir) {
+    match runner::start_server(&app_dir, use_ollama) {
         Ok(_) => {}
         Err(e) => {
             fail(&format!("서버 시작 실패: {e}"));
@@ -706,6 +879,45 @@ fn maybe_handle_dartlab_update(
     }
 }
 
+fn ollama_button_label(app_dir: &std::path::Path) -> &'static str {
+    if !state::ollama_enabled(app_dir) {
+        "Ollama 사용"
+    } else if ollama::is_installed() {
+        "Ollama 제거"
+    } else {
+        "Ollama 사용 안 함"
+    }
+}
+
+fn sync_ollama_button(js: &impl Fn(&str), app_dir: &std::path::Path) {
+    js(&format!(
+        "setOllamaButton('{}')",
+        ollama_button_label(app_dir)
+    ));
+}
+
+fn ensure_ollama_with_prompt(app_dir: &std::path::Path, gpu_label: &str) -> Result<bool, String> {
+    if !state::ollama_enabled(app_dir) {
+        logger::log("Ollama 비활성화 상태 — 설치/기동 생략");
+        return Ok(false);
+    }
+
+    if !ollama::is_installed() {
+        let message = format!(
+            "DartLab은 로컬 AI 실행을 위해 Ollama를 설치할 수 있습니다.\n\n감지된 가속기: {gpu_label}\n예상 소요 시간: 수 분\n\n지금 설치할까요?\n\n아니오를 선택하면 Ollama 없이 계속 시작합니다."
+        );
+        if !confirm_native("Ollama 설치", &message) {
+            state::set_ollama_enabled(app_dir, false);
+            logger::log("사용자가 Ollama 설치를 건너뜀 — 로컬 AI 없이 계속 진행");
+            return Ok(false);
+        }
+    }
+
+    ollama::ensure_ollama(app_dir)?;
+    state::set_ollama_enabled(app_dir, true);
+    Ok(true)
+}
+
 fn acquire_mutex() -> bool {
     use windows_sys::Win32::Foundation::GetLastError;
     use windows_sys::Win32::System::Threading::CreateMutexW;
@@ -738,6 +950,27 @@ fn show_already_running() {
             title.as_ptr(),
             0x00000040,
         );
+    }
+}
+
+fn confirm_native(title: &str, message: &str) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW;
+
+    const MB_YESNO: u32 = 0x00000004;
+    const MB_ICONQUESTION: u32 = 0x00000020;
+    const MB_DEFBUTTON2: u32 = 0x00000100;
+    const IDYES: i32 = 6;
+
+    let wide_msg: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
+    let wide_title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            wide_msg.as_ptr(),
+            wide_title.as_ptr(),
+            MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2,
+        ) == IDYES
     }
 }
 
