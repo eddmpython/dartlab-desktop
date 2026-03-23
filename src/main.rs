@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod logger;
+mod net;
 mod ollama;
 mod paths;
 mod runner;
@@ -22,6 +23,27 @@ enum AppEvent {
     Log(String),
     Ready,
     Show,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PendingUpdateKind {
+    Dartlab,
+    Launcher,
+}
+
+impl PendingUpdateKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            PendingUpdateKind::Dartlab => "dartlab",
+            PendingUpdateKind::Launcher => "launcher",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum UpdateDecision {
+    Accept,
+    Skip,
 }
 
 const SETUP_HTML: &str = r#"<!DOCTYPE html>
@@ -301,39 +323,32 @@ fn main() {
                     });
                 }
                 "update:dartlab:yes" => {
-                    let state = update_state_ipc.lock().unwrap();
-                    if let Some(ref ad) = state.app_dir {
-                        let ad = ad.clone();
-                        let p = ipc_proxy.clone();
-                        std::thread::spawn(move || {
-                            let _ = updater::do_update(&ad);
-                            let _ = p.send_event(AppEvent::Log("hideUpdate()".to_string()));
-                        });
-                    }
+                    resolve_update_decision(
+                        &update_state_ipc,
+                        PendingUpdateKind::Dartlab,
+                        UpdateDecision::Accept,
+                    );
                 }
                 "update:launcher:yes" => {
-                    let state = update_state_ipc.lock().unwrap();
-                    if let Some(ref info) = state.launcher_update {
-                        let info_clone = selfUpdate::SelfUpdateInfo {
-                            version: info.version.clone(),
-                            download_url: info.download_url.clone(),
-                        };
-                        let p = ipc_proxy.clone();
-                        std::thread::spawn(move || {
-                            match selfUpdate::apply_update(&info_clone) {
-                                Ok(()) => {
-                                    logger::log("런처 업데이트 적용 완료 — 다음 실행 시 반영");
-                                }
-                                Err(e) => {
-                                    logger::log(&format!("런처 업데이트 실패: {e}"));
-                                }
-                            }
-                            let _ = p.send_event(AppEvent::Log("hideUpdate()".to_string()));
-                        });
-                    }
+                    resolve_update_decision(
+                        &update_state_ipc,
+                        PendingUpdateKind::Launcher,
+                        UpdateDecision::Accept,
+                    );
                 }
-                s if s.ends_with(":skip") => {
-                    let _ = ipc_proxy.send_event(AppEvent::Log("hideUpdate()".to_string()));
+                "update:dartlab:skip" => {
+                    resolve_update_decision(
+                        &update_state_ipc,
+                        PendingUpdateKind::Dartlab,
+                        UpdateDecision::Skip,
+                    );
+                }
+                "update:launcher:skip" => {
+                    resolve_update_decision(
+                        &update_state_ipc,
+                        PendingUpdateKind::Launcher,
+                        UpdateDecision::Skip,
+                    );
                 }
                 _ => {}
             }
@@ -396,10 +411,14 @@ fn main() {
     });
 }
 
+struct PendingUpdatePrompt {
+    kind: PendingUpdateKind,
+    tx: mpsc::Sender<UpdateDecision>,
+}
+
 #[derive(Default)]
 struct UpdateState {
-    app_dir: Option<std::path::PathBuf>,
-    launcher_update: Option<selfUpdate::SelfUpdateInfo>,
+    pending_update: Option<PendingUpdatePrompt>,
 }
 
 fn run_setup(
@@ -438,27 +457,10 @@ fn run_setup(
         std::fs::create_dir_all(&app_dir).ok();
     }
 
-    {
-        let mut state = update_state.lock().unwrap();
-        state.app_dir = Some(app_dir.clone());
-    }
-
-    {
-        let us = update_state.clone();
-        let tx2 = tx.clone();
-        let proxy2 = proxy.clone();
-        std::thread::spawn(move || {
-            if let Some(info) = selfUpdate::check_update() {
-                let ver = info.version.clone();
-                {
-                    let mut state = us.lock().unwrap();
-                    state.launcher_update = Some(info);
-                }
-                let escaped = ver.replace('\'', "\\'");
-                let _ = tx2.send(AppEvent::Log(format!("showUpdate('launcher','{escaped}')")));
-                let _ = proxy2.send_event(AppEvent::Log(String::new()));
-            }
-        });
+    progress(2, "런처 업데이트 확인 중...");
+    if let Err(e) = maybe_handle_launcher_update(&js, &update_state) {
+        fail(&e);
+        return;
     }
 
     let mut warm = state::is_warm(&app_dir);
@@ -472,17 +474,10 @@ fn run_setup(
     if warm {
         let gpu = ollama::gpu_label();
 
-        {
-            let ad = app_dir.clone();
-            let tx2 = tx.clone();
-            let proxy2 = proxy.clone();
-            std::thread::spawn(move || {
-                if let Ok(Some(ver)) = updater::check_update(&ad) {
-                    let escaped = ver.replace('\'', "\\'");
-                    let _ = tx2.send(AppEvent::Log(format!("showUpdate('dartlab','{escaped}')")));
-                    let _ = proxy2.send_event(AppEvent::Log(String::new()));
-                }
-            });
+        progress(4, "DartLab 업데이트 확인 중...");
+        if let Err(e) = maybe_handle_dartlab_update(&progress, &js, &update_state, &app_dir, 4, 5) {
+            fail(&e);
+            return;
         }
 
         progress(5, &format!("Ollama 확인 중... [{gpu}]"));
@@ -543,12 +538,9 @@ fn run_setup(
     }
 
     progress(40, "업데이트 확인 중...");
-    match updater::check_update(&app_dir) {
-        Ok(Some(latest)) => {
-            progress(45, &format!("v{latest} 업데이트 중..."));
-            let _ = updater::do_update(&app_dir);
-        }
-        _ => {}
+    if let Err(e) = maybe_handle_dartlab_update(&progress, &js, &update_state, &app_dir, 40, 45) {
+        fail(&e);
+        return;
     }
 
     let gpu = ollama::gpu_label();
@@ -595,6 +587,106 @@ fn run_setup(
             let _ = proxy.send_event(AppEvent::Ready);
         }
         Err(e) => fail(&e),
+    }
+}
+
+fn resolve_update_decision(
+    update_state: &std::sync::Arc<std::sync::Mutex<UpdateState>>,
+    kind: PendingUpdateKind,
+    decision: UpdateDecision,
+) {
+    let mut state = update_state.lock().unwrap();
+    if let Some(pending) = state.pending_update.take() {
+        if pending.kind == kind {
+            let _ = pending.tx.send(decision);
+        } else {
+            state.pending_update = Some(pending);
+        }
+    }
+}
+
+fn prompt_for_update(
+    js: &impl Fn(&str),
+    update_state: &std::sync::Arc<std::sync::Mutex<UpdateState>>,
+    kind: PendingUpdateKind,
+    version: &str,
+) -> Result<UpdateDecision, String> {
+    let (decision_tx, decision_rx) = mpsc::channel();
+    {
+        let mut state = update_state
+            .lock()
+            .map_err(|_| "업데이트 상태 잠금 실패".to_string())?;
+        state.pending_update = Some(PendingUpdatePrompt {
+            kind,
+            tx: decision_tx,
+        });
+    }
+
+    let escaped = version.replace('\'', "\\'");
+    js(&format!("showUpdate('{}','{escaped}')", kind.as_str()));
+    logger::log(&format!("업데이트 응답 대기: {} v{version}", kind.as_str()));
+
+    let decision = decision_rx
+        .recv()
+        .map_err(|_| "업데이트 응답 채널 종료".to_string())?;
+
+    js("hideUpdate()");
+    logger::log(&format!(
+        "업데이트 응답 수신: {} {:?}",
+        kind.as_str(),
+        decision
+    ));
+    Ok(decision)
+}
+
+fn maybe_handle_launcher_update(
+    js: &impl Fn(&str),
+    update_state: &std::sync::Arc<std::sync::Mutex<UpdateState>>,
+) -> Result<(), String> {
+    let Some(info) = selfUpdate::check_update() else {
+        return Ok(());
+    };
+
+    match prompt_for_update(js, update_state, PendingUpdateKind::Launcher, &info.version)? {
+        UpdateDecision::Skip => Ok(()),
+        UpdateDecision::Accept => {
+            selfUpdate::apply_update(&info)?;
+            selfUpdate::relaunch_updated_exe()?;
+            std::process::exit(0);
+        }
+    }
+}
+
+fn maybe_handle_dartlab_update(
+    progress: &impl Fn(u32, &str),
+    js: &impl Fn(&str),
+    update_state: &std::sync::Arc<std::sync::Mutex<UpdateState>>,
+    app_dir: &std::path::Path,
+    check_progress: u32,
+    apply_progress: u32,
+) -> Result<(), String> {
+    match updater::check_update(app_dir) {
+        Ok(Some(version)) => {
+            progress(
+                check_progress,
+                &format!("DartLab v{version} 업데이트 확인됨"),
+            );
+            match prompt_for_update(js, update_state, PendingUpdateKind::Dartlab, &version)? {
+                UpdateDecision::Skip => Ok(()),
+                UpdateDecision::Accept => {
+                    progress(
+                        apply_progress,
+                        &format!("DartLab v{version} 업데이트 중..."),
+                    );
+                    updater::do_update(app_dir)
+                }
+            }
+        }
+        Ok(None) => Ok(()),
+        Err(e) => {
+            logger::log(&format!("DartLab 업데이트 확인 실패: {e}"));
+            Ok(())
+        }
     }
 }
 

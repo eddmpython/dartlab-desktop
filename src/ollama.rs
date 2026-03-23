@@ -1,4 +1,4 @@
-use crate::logger;
+use crate::{logger, net};
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command};
@@ -163,18 +163,13 @@ pub fn ensure_ollama(app_dir: &Path) -> Result<(), String> {
 
     let installer_path = app_dir.join("OllamaSetup.exe");
 
-    let resp = ureq::get(OLLAMA_INSTALLER_URL)
-        .header("User-Agent", "dartlab-desktop")
-        .call()
-        .map_err(|e| format!("Ollama 다운로드 실패: {e}"))?;
-
-    let bytes = resp
-        .into_body()
-        .with_config()
-        .limit(512 * 1024 * 1024)
-        .read_to_vec()
-        .map_err(|e| e.to_string())?;
-    std::fs::write(&installer_path, &bytes).map_err(|e| e.to_string())?;
+    net::download_to_file(
+        OLLAMA_INSTALLER_URL,
+        &installer_path,
+        &[("User-Agent", "dartlab-desktop")],
+        Some(512 * 1024 * 1024),
+    )
+    .map_err(|e| format!("Ollama 다운로드 실패: {e}"))?;
 
     let output = Command::new(&installer_path)
         .arg("/VERYSILENT")

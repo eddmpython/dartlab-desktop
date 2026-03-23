@@ -1,5 +1,5 @@
-use crate::logger;
-use std::path::PathBuf;
+use crate::{logger, net};
+use std::path::{Path, PathBuf};
 
 const GITHUB_API: &str = "https://api.github.com/repos/eddmpython/dartlab-desktop/releases/latest";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -11,10 +11,8 @@ pub fn current_version() -> &'static str {
 pub fn cleanup_old() {
     let current = std::env::current_exe().ok();
     if let Some(ref exe) = current {
-        let old = exe.with_extension("exe.old");
-        if old.exists() {
-            std::fs::remove_file(&old).ok();
-        }
+        cleanup_stale_file(&exe.with_extension("exe.old"));
+        cleanup_stale_file(&exe.with_extension("exe.new"));
     }
 }
 
@@ -48,6 +46,15 @@ pub fn apply_update(info: &SelfUpdateInfo) -> Result<(), String> {
     let new_exe = current_exe.with_extension("exe.new");
     let old_exe = current_exe.with_extension("exe.old");
 
+    cleanup_stale_file(&new_exe);
+    cleanup_stale_file(&old_exe);
+    if old_exe.exists() {
+        return Err(format!(
+            "이전 업데이트 잔여 파일이 남아 있습니다: {}",
+            old_exe.display()
+        ));
+    }
+
     logger::log(&format!("런처 업데이트 다운로드 시작: v{}", info.version));
 
     if let Err(e) = download_file(&info.download_url, &new_exe) {
@@ -70,26 +77,22 @@ pub fn apply_update(info: &SelfUpdateInfo) -> Result<(), String> {
     Ok(())
 }
 
+pub fn relaunch_updated_exe() -> Result<(), String> {
+    let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    std::process::Command::new(&current_exe)
+        .spawn()
+        .map_err(|e| format!("업데이트된 런처 재실행 실패: {e}"))?;
+    logger::log("업데이트된 런처 재실행");
+    Ok(())
+}
+
 struct ReleaseInfo {
     tag: String,
     asset_url: Option<String>,
 }
 
 fn get_latest_release() -> Result<ReleaseInfo, String> {
-    let resp = ureq::get(GITHUB_API)
-        .header("User-Agent", "dartlab-desktop")
-        .call()
-        .map_err(|e| e.to_string())?;
-
-    let status = resp.status().as_u16();
-    if status < 200 || status >= 300 {
-        return Err(format!("HTTP {}", status));
-    }
-
-    let body = resp
-        .into_body()
-        .read_to_string()
-        .map_err(|e| e.to_string())?;
+    let body = net::get_text(GITHUB_API, &[("User-Agent", "dartlab-desktop")])?;
 
     let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
 
@@ -110,17 +113,34 @@ fn get_latest_release() -> Result<ReleaseInfo, String> {
 }
 
 fn download_file(url: &str, dest: &PathBuf) -> Result<(), String> {
-    let resp = ureq::get(url)
-        .header("User-Agent", "dartlab-desktop")
-        .call()
-        .map_err(|e| format!("Download failed: {e}"))?;
+    net::download_to_file(url, dest, &[("User-Agent", "dartlab-desktop")], None)
+}
 
-    let status = resp.status().as_u16();
-    if status < 200 || status >= 300 {
-        return Err(format!("HTTP {}", status));
+fn cleanup_stale_file(path: &Path) {
+    if !path.exists() {
+        return;
     }
 
-    let bytes = resp.into_body().read_to_vec().map_err(|e| e.to_string())?;
-    std::fs::write(dest, &bytes).map_err(|e| e.to_string())?;
-    Ok(())
+    for attempt in 0..3 {
+        match std::fs::remove_file(path) {
+            Ok(()) => {
+                logger::log(&format!("업데이트 잔여 파일 정리: {}", path.display()));
+                return;
+            }
+            Err(e) if attempt < 2 => {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                logger::log(&format!(
+                    "업데이트 잔여 파일 정리 재시도 ({}/3): {} ({e})",
+                    attempt + 2,
+                    path.display()
+                ));
+            }
+            Err(e) => {
+                logger::log(&format!(
+                    "업데이트 잔여 파일 정리 실패: {} ({e})",
+                    path.display()
+                ));
+            }
+        }
+    }
 }

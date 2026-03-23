@@ -1,4 +1,4 @@
-use crate::paths;
+use crate::{net, paths};
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
@@ -60,15 +60,8 @@ fn get_local_version(app_dir: &Path) -> Result<String, String> {
 }
 
 fn get_pypi_version() -> Result<String, String> {
-    let resp = ureq::get(PYPI_URL)
-        .header("Accept", "application/json")
-        .call()
+    let body = net::get_text(PYPI_URL, &[("Accept", "application/json")])
         .map_err(|e| format!("PyPI request failed: {e}"))?;
-
-    let body = resp
-        .into_body()
-        .read_to_string()
-        .map_err(|e| e.to_string())?;
 
     let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     let version = json["info"]["version"]

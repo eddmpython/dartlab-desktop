@@ -1,4 +1,4 @@
-use crate::{logger, paths};
+use crate::{logger, net, paths};
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
@@ -279,24 +279,12 @@ fn download_file_with_limit(url: &str, dest: &Path, limit: u64) -> Result<(), St
             std::thread::sleep(std::time::Duration::from_secs(3));
         }
 
-        match ureq::get(url).call() {
-            Ok(resp) => {
-                let status = resp.status();
-                if status.as_u16() < 200 || status.as_u16() >= 300 {
-                    last_err = format!("HTTP {}", status);
-                    continue;
-                }
-                let bytes = resp
-                    .into_body()
-                    .with_config()
-                    .limit(limit)
-                    .read_to_vec()
-                    .map_err(|e| e.to_string())?;
-                std::fs::write(dest, &bytes).map_err(|e| e.to_string())?;
+        match net::download_to_file(url, dest, &[("User-Agent", "dartlab-desktop")], Some(limit)) {
+            Ok(()) => {
                 return Ok(());
             }
             Err(e) => {
-                last_err = format!("Download failed: {e}");
+                last_err = e;
             }
         }
     }
