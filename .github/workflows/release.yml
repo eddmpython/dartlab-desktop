@@ -5,6 +5,10 @@ on:
     tags:
       - "v*"
 
+env:
+  SIGNPATH_PROJECT_SLUG: dartlab-desktop
+  SIGNPATH_SIGNING_POLICY_SLUG: release
+
 permissions:
   contents: write
   id-token: write
@@ -25,13 +29,42 @@ jobs:
         run: |
           copy target\release\dartlab-desktop.exe DartLab.exe
 
+      - name: Install SignPath PowerShell module
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name SignPath -MinimumVersion 4.0.0 -MaximumVersion 4.999.999 -Force -Scope CurrentUser
+
+      - name: Sign release binary with SignPath
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+        run: |
+          if (-not $env:SIGNPATH_API_TOKEN) { throw "Missing SIGNPATH_API_TOKEN secret" }
+          if (-not $env:SIGNPATH_ORGANIZATION_ID) { throw "Missing SIGNPATH_ORGANIZATION_ID secret" }
+
+          New-Item -ItemType Directory -Path signed -Force | Out-Null
+          Import-Module SignPath
+
+          Submit-SigningRequest `
+            -InputArtifactPath "DartLab.exe" `
+            -ProjectSlug "${env:SIGNPATH_PROJECT_SLUG}" `
+            -SigningPolicySlug "${env:SIGNPATH_SIGNING_POLICY_SLUG}" `
+            -OrganizationId $env:SIGNPATH_ORGANIZATION_ID `
+            -ApiToken $env:SIGNPATH_API_TOKEN `
+            -Description "GitHub release ${{ github.ref_name }}" `
+            -WaitForCompletion `
+            -OutputArtifactPath "signed\\DartLab.exe" `
+            -Force
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: DartLab.exe
+          subject-path: signed/DartLab.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: DartLab.exe
+          files: signed/DartLab.exe
           generate_release_notes: true
