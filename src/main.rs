@@ -117,12 +117,11 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     border-radius: 50%;
     border: 2px solid rgba(148,163,184,0.25);
     border-top-color: #fb923c;
-    display: none;
-    flex: 0 0 auto;
-  }
-  .spinner.active {
-    display: block;
     animation: spin 0.8s linear infinite;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    pointer-events: none;
+    flex: 0 0 auto;
   }
   #status {
     font-size: 13px;
@@ -262,7 +261,10 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     }
     function setBusy(nextBusy) {
       busy = !!nextBusy;
-      document.getElementById('spinner').classList.toggle('active', busy);
+      var spinner = document.getElementById('spinner');
+      spinner.style.opacity = busy ? '1' : '0';
+      spinner.setAttribute('aria-hidden', busy ? 'false' : 'true');
+      document.body.setAttribute('data-busy', busy ? 'true' : 'false');
       syncUiState();
     }
     function setOllamaButton(label) {
