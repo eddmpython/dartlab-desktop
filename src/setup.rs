@@ -139,12 +139,26 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
 pub fn ensure_ui_build(app_dir: &Path) -> Result<(), String> {
     let ui_dir = paths::dartlab_ui_dir(app_dir);
     let build_dir = ui_dir.join("build");
+    let version_file = build_dir.join(".dartlab_ui_version");
+
+    let current_ver = get_dartlab_version(app_dir);
 
     if build_dir.exists() && build_dir.join("index.html").exists() {
-        return Ok(());
+        if let Some(ref ver) = current_ver {
+            if let Ok(saved) = std::fs::read_to_string(&version_file) {
+                if saved.trim() == ver.trim() {
+                    return Ok(());
+                }
+                logger::log(&format!("dartlab 버전 변경 감지 ({} → {ver}) — UI 재다운로드", saved.trim()));
+            } else {
+                return Ok(());
+            }
+        } else {
+            return Ok(());
+        }
     }
 
-    logger::log("UI 빌드 파일 없음 — GitHub에서 다운로드");
+    logger::log("UI 빌드 파일 다운로드 중...");
 
     let zip_url = "https://github.com/eddmpython/dartlab/archive/refs/heads/master.zip";
     let zip_path = app_dir.join("dartlab-ui.zip");
@@ -174,8 +188,27 @@ pub fn ensure_ui_build(app_dir: &Path) -> Result<(), String> {
         return Err("UI 빌드 파일 복사 완료되었으나 index.html이 없습니다".into());
     }
 
+    if let Some(ref ver) = current_ver {
+        std::fs::write(&version_file, ver).ok();
+    }
+
     logger::log("UI 빌드 파일 설치 완료");
     Ok(())
+}
+
+fn get_dartlab_version(app_dir: &Path) -> Option<String> {
+    let python = paths::python_bin(app_dir);
+    let output = Command::new(&python)
+        .args(["-c", "import dartlab; print(dartlab.__version__)"])
+        .current_dir(app_dir)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if ver.is_empty() { None } else { Some(ver) }
 }
 
 fn find_build_dir(extract_dir: &Path) -> Option<std::path::PathBuf> {
