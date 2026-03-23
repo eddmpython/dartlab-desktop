@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -22,6 +24,11 @@ jobs:
       - name: Rename exe
         run: |
           copy target\release\dartlab-desktop.exe DartLab.exe
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: DartLab.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
