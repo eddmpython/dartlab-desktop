@@ -234,6 +234,9 @@ pub fn ensure_serve() -> Result<(), String> {
     logger::log("Ollama serve 시작 중...");
     let child = Command::new(&bin)
         .arg("serve")
+        .env("OLLAMA_FLASH_ATTENTION", "1")
+        .env("OLLAMA_KV_CACHE_TYPE", "q8_0")
+        .env("OLLAMA_NUM_PARALLEL", "1")
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| format!("ollama serve 실패: {e}"))?;
