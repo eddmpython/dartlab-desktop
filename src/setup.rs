@@ -145,114 +145,48 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// UI 빌드 파일 확인.
+///
+/// dartlab PyPI wheel에 `dartlab/ui/build/`가 포함되어 있으므로
+/// `pip install dartlab`만으로 UI가 설치된다.
+/// 이 함수는 설치 후 파일 존재 여부만 확인한다.
 pub fn ensure_ui_build(app_dir: &Path) -> Result<(), String> {
-    let ui_dir = paths::dartlab_ui_dir(app_dir);
-    let build_dir = ui_dir.join("build");
-    let version_file = build_dir.join(".dartlab_ui_version");
+    let build_dir = paths::dartlab_ui_dir(app_dir).join("build");
 
-    let current_ver = get_dartlab_version(app_dir);
-
-    if build_dir.exists() && build_dir.join("index.html").exists() {
-        if let Some(ref ver) = current_ver {
-            if let Ok(saved) = std::fs::read_to_string(&version_file) {
-                if saved.trim() == ver.trim() {
-                    return Ok(());
-                }
-                logger::log(&format!(
-                    "dartlab 버전 변경 감지 ({} → {ver}) — UI 재다운로드",
-                    saved.trim()
-                ));
-            } else {
-                return Ok(());
-            }
-        } else {
-            return Ok(());
-        }
+    if build_dir.join("index.html").exists() {
+        logger::log("UI 빌드 파일 확인 완료");
+        return Ok(());
     }
 
-    logger::log("UI 빌드 파일 다운로드 중...");
-
-    let zip_url = "https://github.com/eddmpython/dartlab/archive/refs/heads/master.zip";
-    let zip_path = app_dir.join("dartlab-ui.zip");
-    download_file(zip_url, &zip_path)?;
-
-    let extract_dir = app_dir.join("_dartlab_ui_tmp");
-    if extract_dir.exists() {
-        std::fs::remove_dir_all(&extract_dir).ok();
-    }
-    std::fs::create_dir_all(&extract_dir).map_err(|e| e.to_string())?;
-    extract_zip(&zip_path, &extract_dir)?;
-    std::fs::remove_file(&zip_path).ok();
-
-    let src_build = find_build_dir(&extract_dir)
-        .ok_or("다운로드한 레포에서 ui/build 디렉토리를 찾을 수 없습니다")?;
-
-    std::fs::create_dir_all(&ui_dir).map_err(|e| e.to_string())?;
-
-    if build_dir.exists() {
-        std::fs::remove_dir_all(&build_dir).ok();
-    }
-    copy_dir_all(&src_build, &build_dir)?;
-
-    std::fs::remove_dir_all(&extract_dir).ok();
-
-    if !build_dir.join("index.html").exists() {
-        return Err("UI 빌드 파일 복사 완료되었으나 index.html이 없습니다".into());
-    }
-
-    if let Some(ref ver) = current_ver {
-        std::fs::write(&version_file, ver).ok();
-    }
-
-    logger::log("UI 빌드 파일 설치 완료");
-    Ok(())
-}
-
-fn get_dartlab_version(app_dir: &Path) -> Option<String> {
+    // wheel에 포함되어야 하는데 없으면 dartlab 재설치 시도
+    logger::log("UI 빌드 파일 누락 — dartlab 재설치 시도");
+    let uv = paths::uv_bin(app_dir);
     let python = paths::python_bin(app_dir);
-    let output = Command::new(&python)
-        .args(["-c", "import dartlab; print(dartlab.__version__)"])
+    let output = Command::new(&uv)
+        .args([
+            "pip",
+            "install",
+            "--force-reinstall",
+            "dartlab[ai,llm]",
+            "--python",
+            python.to_str().unwrap(),
+        ])
         .current_dir(app_dir)
         .creation_flags(CREATE_NO_WINDOW)
         .output()
-        .ok()?;
+        .map_err(|e| e.to_string())?;
+
     if !output.status.success() {
-        return None;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("dartlab 재설치 실패: {stderr}"));
     }
-    let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if ver.is_empty() { None } else { Some(ver) }
-}
 
-fn find_build_dir(extract_dir: &Path) -> Option<std::path::PathBuf> {
-    if let Ok(entries) = std::fs::read_dir(extract_dir) {
-        for entry in entries.flatten() {
-            let candidate = entry
-                .path()
-                .join("src")
-                .join("dartlab")
-                .join("ui")
-                .join("build");
-            if candidate.join("index.html").exists() {
-                return Some(candidate);
-            }
-        }
+    if build_dir.join("index.html").exists() {
+        logger::log("UI 빌드 파일 재설치 후 확인 완료");
+        Ok(())
+    } else {
+        Err("dartlab 재설치 후에도 UI 빌드 파일(index.html)이 없습니다".into())
     }
-    None
-}
-
-fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
-    for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let ty = entry.file_type().map_err(|e| e.to_string())?;
-        let dst_path = dst.join(entry.file_name());
-        if ty.is_dir() {
-            copy_dir_all(&entry.path(), &dst_path)?;
-        } else {
-            std::fs::copy(entry.path(), &dst_path).map_err(|e| e.to_string())?;
-        }
-    }
-    Ok(())
 }
 
 fn cleanup_legacy(app_dir: &Path) {

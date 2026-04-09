@@ -55,10 +55,13 @@ pub fn start_server(app_dir: &Path, use_ollama: bool) -> Result<PathBuf, String>
         .try_clone()
         .map_err(|e| format!("로그 파일 복제 실패: {e}"))?;
 
+    let ui_build = paths::dartlab_ui_dir(app_dir).join("build");
+
     let mut command = Command::new(&dartlab);
     command
         .args(["ai", "--port", &PORT.to_string(), "--no-browser"])
         .env("DARTLAB_NO_BROWSER", "1")
+        .env("DARTLAB_UI_DIR", &ui_build)
         .current_dir(app_dir)
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(log_file_err))
