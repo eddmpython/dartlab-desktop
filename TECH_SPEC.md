@@ -3,7 +3,8 @@
 ## 개요
 
 비개발자가 더블클릭 한 번으로 DartLab AI 기업분석을 사용할 수 있는 Windows 네이티브 앱.
-Rust 바이너리가 Python 환경 + LLM 엔진을 자동 관리하고, WebView2로 UI를 표시한다.
+Rust 바이너리가 Python 환경과 dartlab 서버를 자동 관리하고, WebView2로 UI를 표시한다.
+AI는 dartlab 서버의 Agent Gateway가 PC에 설치된 Codex CLI, Claude Code, Cline을 연결해 쓴다. 런처는 LLM 엔진이나 모델을 설치하지 않는다.
 
 ## 아키텍처
 
@@ -11,9 +12,8 @@ Rust 바이너리가 Python 환경 + LLM 엔진을 자동 관리하고, WebView2
 DartLab.exe (Rust, ~2.7MB)
 ├── main          → WebView2 윈도우 + IPC + 이벤트 루프 + 뮤텍스 + panic hook
 ├── selfUpdate    → GitHub Releases API로 exe 자체 업데이트 (사용자 승인)
-├── setup         → uv 다운로드 + Python venv 생성 + dartlab[ai,llm] 설치
+├── setup         → uv 다운로드 + Python venv 생성 + dartlab 설치
 ├── updater       → PyPI 버전 체크 + dartlab 패키지 업데이트 (사용자 승인)
-├── ollama        → Ollama 설치 + GPU 감지 + 모델 다운로드 + 프리로드
 ├── runner        → dartlab ai 서버 subprocess 관리
 ├── state         → 웜/콜드 스타트 판별 (state.json)
 ├── logger        → 파일 기반 로깅 + 자동 정리
@@ -37,17 +37,16 @@ DartLab.exe (Rust, ~2.7MB)
   │   └─ 새 버전 발견 → IPC 배너로 사용자 승인 요청
   │
   ├─ [웜 스타트] (state.json 7일 이내)
-  │   ├─ GPU 레이블 표시
-  │   ├─ 백그라운드: dartlab 업데이트 체크 → IPC 배너
-  │   ├─ 서버 시작 + 모델 프리로드
+  │   ├─ dartlab 업데이트 체크 → IPC 배너로 사용자 승인 요청
+  │   ├─ UI 빌드 확인 + 서버 시작
   │   └─ 서버 응답 대기 → WebView URL 전환
   │
   └─ [콜드 스타트]
       ├─ 4. uv 설치 확인/다운로드
-      ├─ 5. Python venv + dartlab[ai,llm] 설치
-      ├─ 6. PyPI 업데이트 체크 + 자동 적용
-      ├─ 7. GPU 감지 + Ollama 설치 + 모델 확인
-      ├─ 8. dartlab ai 서버 시작 + 모델 프리로드
+      ├─ 5. Python venv + dartlab 설치
+      ├─ 6. PyPI 업데이트 체크 → IPC 배너로 사용자 승인 요청
+      ├─ 7. UI 빌드 확인
+      ├─ 8. dartlab ai 서버 시작
       └─ 9. TCP 응답 대기 → WebView URL 전환
 ```
 
@@ -74,7 +73,6 @@ src/
 ├── setup.rs        → uv 다운로드 + Python venv + dartlab 설치
 ├── updater.rs      → PyPI 버전 비교 + 패키지 업데이트
 ├── runner.rs       → dartlab ai subprocess 관리
-├── ollama.rs       → Ollama 설치 + GPU 감지 + 모델 프리로드
 ├── paths.rs        → 경로 유틸리티
 ├── selfUpdate.rs   → exe 자체 업데이트 (사용자 승인 기반)
 ├── state.rs        → 웜/콜드 스타트 판별 (state.json)
@@ -133,15 +131,14 @@ src/
 
 ### 웜 스타트 (state.json)
 - 성공적 실행 완료 시 `{"last_success": unix_ts}` 기록
-- 7일 이내 성공 기록 → uv/dartlab/ollama 설치 체크 스킵
+- 7일 이내 성공 기록 → uv/dartlab 설치 체크 스킵
 - 서버 바로 시작 → 체감 시작 시간 대폭 단축
 
-### GPU 감지 + 모델 프리로드
-- `wmic path win32_VideoController` → GPU 이름/벤더 파싱
-- NVIDIA → "CUDA", AMD → "ROCm", Intel → "GPU", 없음 → "CPU"
-- 설치 UI에 GPU 레이블 표시
-- 서버 시작 직후 `POST /api/generate` (keep_alive:-1)로 모델 메모리 로드
-- 첫 질문 시 콜드 스타트 지연 제거
+### AI 연결 (Agent Gateway)
+- 런처는 Ollama, llama.cpp, 모델 파일을 설치하거나 실행하지 않는다
+- `dartlab ai` 서버의 Agent Gateway가 PC에 설치하고 로그인한 Codex CLI, Claude Code, Cline을 쓴다
+- 연결 상태와 설치 안내는 dartlab UI의 Runtime Center가 보여준다
+- 0.3.x 런처가 설치한 Ollama는 Windows 설정의 앱 목록에서 제거할 수 있다
 
 ## 자동 업데이트 메커니즘
 
@@ -157,8 +154,8 @@ src/
 ### Python 패키지 (updater)
 1. PyPI API `GET /pypi/dartlab/json` → 최신 버전
 2. venv 내 `python -c "import dartlab; print(dartlab.__version__)"` → 현재 버전
-3. 다르면 IPC 배너 표시 (웜 스타트) 또는 자동 적용 (콜드 스타트)
-4. `uv pip install --upgrade dartlab[ai,llm]`
+3. 다르면 IPC 배너로 사용자 승인 요청 (웜/콜드 스타트 공통)
+4. 승인 시 `uv pip install --upgrade dartlab`
 
 ## IPC 프로토콜
 
@@ -256,7 +253,7 @@ GitHub Actions (tag push → 자동):
 | PowerShell Expand-Archive → zip crate | 외부 프로세스 제거 |
 | selfUpdate 백그라운드화 | 창 표시 차단 제거 |
 | state.json 웜 스타트 | 재실행 시 설치 체크 스킵 |
-| 모델 프리로드 | LLM 첫 응답 지연 제거 |
+| Ollama 모듈 제거 (v0.4.0) | 로컬 LLM 설치/구동 단계 제거, 기본 설치를 `dartlab` 하나로 축소 |
 
 ## 의존성 최소화 원칙
 
@@ -272,11 +269,6 @@ GitHub Actions (tag push → 자동):
 - [ ] Windows 토스트 알림 (업데이트 가용 시 시스템 알림)
 - [ ] 시스템 트레이 아이콘 (최소화 시 트레이로)
 - [ ] 시작 프로그램 등록 옵션
-
-### 중기 (v0.5.x)
-- [ ] llama.cpp 직접 실행 모드 (Ollama 대체, ~5MB exe)
-- [ ] 모델 선택 UI (빠름 1.7B / 균형 4B / 정확 8B)
-- [ ] Ollama 모델 관리 UI 통합
 
 ### 장기 (v1.0)
 - [ ] Windows 인스톨러 (NSIS/WiX) — 시작메뉴, 바탕화면 바로가기

@@ -33,7 +33,7 @@ pub fn do_update(app_dir: &Path) -> Result<(), String> {
             "pip",
             "install",
             "--upgrade",
-            "dartlab[ai,llm]",
+            "dartlab",
             "--python",
             python.to_str().unwrap(),
         ])

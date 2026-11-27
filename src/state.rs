@@ -22,19 +22,6 @@ pub fn clear_state(app_dir: &Path) {
     save_state(app_dir, &json);
 }
 
-pub fn ollama_enabled(app_dir: &Path) -> bool {
-    load_state(app_dir)
-        .get("ollama_enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true)
-}
-
-pub fn set_ollama_enabled(app_dir: &Path, enabled: bool) {
-    let mut json = load_state(app_dir);
-    json["ollama_enabled"] = serde_json::Value::Bool(enabled);
-    save_state(app_dir, &json);
-}
-
 pub fn is_warm(app_dir: &Path) -> bool {
     let json = load_state(app_dir);
 

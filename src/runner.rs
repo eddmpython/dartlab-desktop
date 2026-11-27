@@ -25,7 +25,7 @@ fn verify_dartlab_server() -> bool {
         .is_ok()
 }
 
-pub fn start_server(app_dir: &Path, use_ollama: bool) -> Result<PathBuf, String> {
+pub fn start_server(app_dir: &Path) -> Result<PathBuf, String> {
     if is_port_in_use() {
         if let Ok(mut lock) = SERVER_LOG.lock() {
             *lock = None;
@@ -66,11 +66,6 @@ pub fn start_server(app_dir: &Path, use_ollama: bool) -> Result<PathBuf, String>
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(log_file_err))
         .creation_flags(CREATE_NO_WINDOW);
-
-    if use_ollama {
-        command.env("DARTLAB_LLM_BASE_URL", "http://127.0.0.1:11434/v1");
-        command.env("DARTLAB_PRELOAD_OLLAMA", "1");
-    }
 
     let child = command
         .spawn()

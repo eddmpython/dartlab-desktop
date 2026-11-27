@@ -123,7 +123,7 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
             .args([
                 "pip",
                 "install",
-                "dartlab[ai,llm]",
+                "dartlab",
                 "--python",
                 python.to_str().unwrap(),
             ])
@@ -135,7 +135,7 @@ pub fn ensure_dartlab(app_dir: &Path) -> Result<(), String> {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             logger::log(&format!("uv pip install stderr: {stderr}"));
-            return Err(format!("uv pip install dartlab[ai,llm] failed: {stderr}"));
+            return Err(format!("uv pip install dartlab failed: {stderr}"));
         }
         logger::log("DartLab 설치 완료");
     } else {
@@ -167,7 +167,7 @@ pub fn ensure_ui_build(app_dir: &Path) -> Result<(), String> {
             "pip",
             "install",
             "--force-reinstall",
-            "dartlab[ai,llm]",
+            "dartlab",
             "--python",
             python.to_str().unwrap(),
         ])

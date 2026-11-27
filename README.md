@@ -22,21 +22,21 @@
 
 <p>
 <img src="https://img.shields.io/badge/Package-Single_EXE-f87171?style=for-the-badge&labelColor=050811&logo=databricks&logoColor=white" alt="Package">
-<img src="https://img.shields.io/badge/Local_AI-Optional-818cf8?style=for-the-badge&labelColor=050811&logo=ollama&logoColor=white" alt="Local AI Optional">
+<img src="https://img.shields.io/badge/AI-Agent_Gateway-818cf8?style=for-the-badge&labelColor=050811&logoColor=white" alt="AI Agent Gateway">
 <img src="https://img.shields.io/badge/Shortcuts-Desktop_%2B_Start_Menu-34d399?style=for-the-badge&labelColor=050811&logo=windows-terminal&logoColor=white" alt="Shortcuts">
 </p>
 
 </div>
 
-`DartLab.exe` 하나만 실행하면 Python, `dartlab`, Web UI 준비까지 자동으로 끝낸다. 로컬 AI가 필요하면 Ollama 설치를 사용자에게 먼저 묻고, 원하지 않으면 건너뛴 채로 바로 시작할 수 있다. 비개발자 기준으로는 "다운로드 후 더블클릭", 개발자 기준으로는 "Windows용 self-contained launcher"가 목표다.
+`DartLab.exe` 하나만 실행하면 Python, `dartlab`, Web UI 준비까지 자동으로 끝낸다. AI 분석은 PC에 설치하고 로그인한 Codex CLI, Claude Code, Cline을 앱 안의 Runtime Center에서 연결해 쓴다. 비개발자 기준으로는 "다운로드 후 더블클릭", 개발자 기준으로는 "Windows용 self-contained launcher"가 목표다.
 
 ## 무엇을 해결하나
 
-`dartlab` 본체는 강력하지만, 일반 사용자는 Python 환경, 패키지 설치, 로컬 LLM, 모델 다운로드, 브라우저 실행까지 직접 맞추기 어렵다. DartLab Desktop은 이 진입장벽을 없애는 Windows 네이티브 런처다.
+`dartlab` 본체는 강력하지만, 일반 사용자는 Python 환경, 패키지 설치, 서버 실행, 브라우저 실행까지 직접 맞추기 어렵다. DartLab Desktop은 이 진입장벽을 없애는 Windows 네이티브 런처다.
 
 - 첫 실행에서 필요한 런타임과 패키지를 자동 설치한다.
 - 재실행 시에는 웜 스타트로 훨씬 빠르게 연다.
-- Ollama와 모델은 사용자 승인 후에만 설치하고, 원하지 않으면 로컬 AI 없이 계속 사용할 수 있다.
+- 로컬 LLM이나 모델을 내려받지 않는다. AI는 이미 설치한 coding agent CLI를 Runtime Center에서 연결한다.
 - 런처 업데이트와 `dartlab` 본체 업데이트를 각각 분리해서 확인하고, 둘 다 사용자 승인 후에만 적용한다.
 - 성공 실행 후 바탕화면과 시작 메뉴 바로가기를 자동 생성하고, 이후 누락되면 자동 복구한다.
 
@@ -45,8 +45,8 @@
 1. [GitHub Releases](https://github.com/eddmpython/dartlab-desktop/releases)에서 `DartLab.exe`를 다운로드한다.
 2. `DartLab.exe`를 실행한다.
 3. 첫 실행에서는 자동 설치가 진행된다. 네트워크와 디스크 상태에 따라 몇 분 정도 걸릴 수 있다.
-4. 로컬 AI를 쓰고 싶다면 Ollama 설치 확인 창에서 `예`를 누른다. `아니오`를 누르면 Ollama 없이 계속 시작한다.
-5. 준비가 끝나면 `http://127.0.0.1:8400` 기반 UI로 자동 전환된다.
+4. 준비가 끝나면 `http://127.0.0.1:8400` 기반 UI로 자동 전환된다.
+5. AI 분석을 쓰려면 Codex CLI, Claude Code, Cline 가운데 하나를 PC에 설치하고 로그인한 뒤 앱 안의 Runtime Center에서 연결한다.
 
 ## 첫 실행에서 자동 구성되는 것
 
@@ -54,9 +54,7 @@
 |---|---|
 | [uv](https://docs.astral.sh/uv/) | Python 환경과 패키지 설치 |
 | Python 3.12 | `uv venv`로 격리 환경 생성 |
-| [`dartlab[ai,llm]`](https://github.com/eddmpython/dartlab) | 분석 본체와 AI 기능 |
-| [Ollama](https://ollama.com) | 로컬 LLM 런타임, 사용자 승인 시에만 설치 |
-| `qwen3:4b` | 기본 한국어 분석 모델, Ollama 사용 시에만 다운로드 |
+| [`dartlab`](https://github.com/eddmpython/dartlab) | 분석 본체, Web UI, Agent Gateway |
 | WebView2 데이터 | 런처 UI와 내장 브라우저 상태 |
 
 모든 데이터는 `%LOCALAPPDATA%\DartLab\` 아래에 격리된다. 시스템 Python이나 전역 패키지에 의존하지 않는다.
@@ -77,11 +75,11 @@
 - 로컬 버전과 PyPI 최신 버전을 비교하고, 새 버전이 있으면 사용자 응답을 받을 때까지 다음 단계로 넘어가지 않는다.
 - 로그에는 `설치/검증 완료 -> 로컬 버전 -> PyPI 최신 버전 -> 업데이트 필요 여부`가 남는다.
 
-## Ollama 사용 방식
+## AI 연결 방식
 
-- Ollama는 필수가 아니다. 설치 전 확인 창이 먼저 뜬다.
-- `아니오`를 누르면 `dartlab` 서버는 Ollama 환경 변수 없이 시작되고, 앱은 로컬 AI 없이 계속 열린다.
-- 런처 하단의 Ollama 버튼으로 "이번부터 설치 건너뛰기", "다시 사용", "설치된 Ollama 제거"를 처리할 수 있다.
+- 런처는 AI 런타임을 설치하지 않는다. `dartlab` 서버의 Agent Gateway가 PC에 설치된 Codex CLI, Claude Code, Cline을 찾아 쓴다.
+- 연결 상태와 설치 안내는 앱 안의 Runtime Center에서 확인한다.
+- 0.3.x 런처가 설치한 Ollama는 더 이상 쓰지 않는다. 필요 없으면 Windows 설정의 앱 목록에서 제거한다.
 
 ## 바로가기
 
@@ -102,7 +100,6 @@ DartLab.exe
 ├─ selfUpdate    런처 최신 버전 확인 및 exe 교체
 ├─ setup         uv / Python / dartlab 설치
 ├─ updater       PyPI 최신 버전 비교 및 본체 업데이트
-├─ ollama        Ollama 설치, 구동, 모델 확인
 ├─ runner        dartlab ai 서버 실행 및 대기
 ├─ shortcuts     Desktop / Start Menu 바로가기 생성
 ├─ state         웜 스타트 상태 기록
@@ -118,7 +115,6 @@ DartLab.exe
 | OS | Windows 10 | Windows 11 |
 | RAM | 8GB | 16GB |
 | 디스크 | 5GB 여유 | 10GB 이상 |
-| GPU | 없음, CPU 모드 가능 | NVIDIA GPU |
 | WebView2 | Windows 기본 내장 또는 설치 필요 | 기본 내장 |
 
 ## 트러블슈팅
